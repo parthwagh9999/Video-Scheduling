@@ -1,0 +1,97 @@
+# ==========================================
+# Video, Audio & Media Files (DO NOT COMMIT)
+# ==========================================
+start video/
+"start video/"
+End Video/
+"End Video/"
+output/
+backups/
+previous/
+
+*.mp4
+*.m4v
+*.mov
+*.avi
+*.mkv
+*.webm
+*.flv
+*.ts
+*.wmv
+*.mp3
+*.wav
+*.aac
+*.m4a
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.gif
+
+# ==========================================
+# Credentials, Sessions & Browser Profiles
+# ==========================================
+browser_profile/
+*.session
+*.session-journal
+*.cookie*
+*.cookies
+storage_state.json
+state.json
+Default/
+Profile */
+Singleton*
+*.key
+*.pem
+*.token
+*.env
+*.env.*
+*.pfx
+*.cert
+credentials.json
+client_secret*.json
+
+# ==========================================
+# Databases & Private Spreadsheets
+# ==========================================
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+video_scheduler.db
+*.xlsx
+*.xls
+*.csv
+
+# ==========================================
+# Logs & Scratch Scripts
+# ==========================================
+logs/
+*.log
+scratch/
+
+# ==========================================
+# Python & System Caches
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+venv/
+.venv/
+env/
+ENV/
+
+# OS & Editor Specific
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+.agents/
+.gemini/

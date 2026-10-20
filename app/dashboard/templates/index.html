@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Multi-platform video scheduling and publishing dashboard for YouTube Shorts, Instagram Reels, and Facebook Reels">
+    <title>Video Scheduling Dashboard</title>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+</head>
+<body>
+    <div class="app-container">
+        <!-- ═══ SIDEBAR ═══ -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <div class="logo-icon">🎬</div>
+                    <div>
+                        <h1>VideoSched</h1>
+                        <div class="version">v1.0 — Multi-Platform</div>
+                    </div>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <div class="nav-section-label">Dashboard</div>
+                <div class="nav-item active" data-page="overview" onclick="navigateTo('overview')">
+                    <span class="icon">📊</span> Overview
+                </div>
+                <div class="nav-item" data-page="library" onclick="navigateTo('library')">
+                    <span class="icon">🎥</span> Video Library
+                </div>
+
+                <div class="nav-section-label">Workflow</div>
+                <div class="nav-item" data-page="excel" onclick="navigateTo('excel')">
+                    <span class="icon">📋</span> Excel Sync
+                </div>
+                <div class="nav-item" data-page="processing" onclick="navigateTo('processing')">
+                    <span class="icon">⚙️</span> Video Processing
+                </div>
+                <div class="nav-item" data-page="thumbnails" onclick="navigateTo('thumbnails')">
+                    <span class="icon">🖼️</span> Thumbnails
+                </div>
+
+                <div class="nav-section-label">Publishing</div>
+                <div class="nav-item" data-page="calendar" onclick="navigateTo('calendar')">
+                    <span class="icon">📅</span> Calendar
+                </div>
+                <div class="nav-item" data-page="queue" onclick="navigateTo('queue')">
+                    <span class="icon">📤</span> Publishing Queue
+                    <span class="badge" id="queue-badge" style="display:none">0</span>
+                </div>
+
+                <div class="nav-section-label">System</div>
+                <div class="nav-item" data-page="settings" onclick="navigateTo('settings')">
+                    <span class="icon">⚙️</span> Settings
+                </div>
+            </nav>
+            <!-- Scheduler Heartbeat -->
+            <div style="padding: 16px 20px; border-top: 1px solid var(--border-subtle);">
+                <div class="flex items-center gap-2">
+                    <span id="heartbeat-dot" style="width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;"></span>
+                    <span class="text-xs text-muted">Scheduler Active</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ═══ MAIN CONTENT ═══ -->
+        <main class="main-content">
+            <!-- Toast Container -->
+            <div class="toast-container" id="toast-container"></div>
+
+            <!-- ═══ PAGE: OVERVIEW ═══ -->
+            <div class="page" id="page-overview">
+                <div class="page-header">
+                    <h2>📊 Dashboard Overview</h2>
+                    <div class="subtitle">Multi-platform video scheduling at a glance</div>
+                </div>
+                <div class="page-body">
+                    <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+                        <h3 style="font-size:1rem;font-weight:600;">Content Status</h3>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <button id="btn-scan-thumbnails" class="btn btn-secondary btn-sm" onclick="scanThumbnails()">🖼️ Scan Thumbnails</button>
+                            <button id="btn-scan-discover" class="btn btn-secondary btn-sm" onclick="scanVideos()">🔍 Scan & Discover</button>
+                            <button id="btn-run-all-pipeline" class="btn btn-primary btn-sm" onclick="runAllPipeline()" style="background:linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899); box-shadow:0 4px 15px rgba(139,92,246,0.35); font-weight:700;">⚡ Run All Steps (Full Pipeline)</button>
+                        </div>
+                    </div>
+
+                    <!-- Live Terminal Output Drawer / Modal -->
+                    <div id="pipeline-terminal-card" class="card mb-4" style="display:none; background:#0d1117; border:1px solid #30363d;">
+                        <div class="card-header" style="background:#161b22; display:flex; justify-content:space-between; align-items:center; padding:10px 16px; border-bottom:1px solid #30363d;">
+                            <div class="flex items-center gap-2">
+                                <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#ff5f56;"></span>
+                                <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#ffbd2e;"></span>
+                                <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#27c93f;"></span>
+                                <span style="font-family:monospace; font-size:0.85rem; font-weight:600; color:#c9d1d9; margin-left:8px;">💻 Live Execution Terminal</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="terminal-step-badge" class="badge" style="background:#238636; color:#fff; font-size:0.75rem; padding:3px 8px; border-radius:4px;">Initializing...</span>
+                                <button class="btn btn-sm btn-secondary" onclick="closeTerminal()" style="padding:2px 8px; font-size:0.75rem;">✕ Close</button>
+                            </div>
+                        </div>
+                        <div class="card-body" style="padding:14px; max-height:360px; overflow-y:auto; background:#0d1117;" id="terminal-body">
+                            <pre id="terminal-output" style="margin:0; font-family:'Fira Code', 'Consolas', monospace; font-size:0.82rem; line-height:1.55; color:#58a6ff; white-space:pre-wrap; word-break:break-all;"></pre>
+                        </div>
+                    </div>
+
+                    <div class="stats-grid" id="overview-stats">
+                        <div class="loading-overlay"><span class="spinner"></span> Loading stats...</div>
+                    </div>
+
+                    <h3 style="font-size:1rem;font-weight:600;margin-bottom:16px;">Platform Status</h3>
+                    <div class="stats-grid" id="platform-stats"></div>
+                </div>
+            </div>
+
+            <!-- ═══ PAGE: VIDEO LIBRARY ═══ -->
+            <div class="page" id="page-library" style="display:none">
+                <div class="page-header">
+                    <h2>🎥 Video Library</h2>
+                    <div class="subtitle">All discovered source videos and their metadata</div>
+                </div>
+                <div class="page-body">
+                    <div class="search-bar">
+                        <input type="text" class="search-input" id="library-search" placeholder="Search videos by filename, title..." oninput="filterLibrary()">
+                        <select class="filter-select" id="library-filter" onchange="filterLibrary()">
+                            <option value="">All Status</option>
+                            <option value="Pending">Pending</option>
+                            <option value="Ready">Ready</option>
+                            <option value="Scheduled">Scheduled</option>
+                            <option value="Published">Published</option>
+                            <option value="Failed">Failed</option>
+                        </select>
+                    </div>
+                    <div class="card">
+                        <div class="card-body" style="overflow-x:auto;">
+                            <table class="data-table" id="library-table">
+                                <thead>
+                                    <tr>
+                                        <th>Filename</th>
+                                        <th>Title</th>
+                                        <th>Duration</th>
+                                        <th>Outro</th>
+                                        <th>Thumb</th>
+                                        <th>Status</th>
+                                        <th>Platforms</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="library-tbody">
+                                    <tr><td colspan="7" class="loading-overlay"><span class="spinner"></span> Loading library...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ PAGE: EXCEL SYNC ═══ -->
+            <div class="page" id="page-excel" style="display:none">
+                <div class="page-header">
+                    <h2>📋 Excel Synchronization</h2>
+                    <div class="subtitle">Match video files to SEO metadata in the workbook</div>
+                </div>
+                <div class="page-body">
+                    <div class="stats-grid" id="excel-stats"></div>
+                    <div class="flex gap-3 mb-4">
+                        <button class="btn btn-secondary" onclick="previewExcelSync()">👁️ Preview Changes</button>
+                        <button class="btn btn-primary" onclick="runExcelSync()">✅ Sync Workbook</button>
+                    </div>
+                    <div class="card" id="excel-preview-card" style="display:none">
+                        <div class="card-header"><h3>Preview: New Records</h3></div>
+                        <div class="card-body" id="excel-preview-body"></div>
+                    </div>
+                    <div class="card mt-4">
+                        <div class="card-header"><h3>Current Records</h3></div>
+                        <div class="card-body" style="overflow-x:auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr><th>Filename</th><th>SEO Title</th><th>Words</th><th>Status</th><th>Sched Date</th><th>URL</th></tr>
+                                </thead>
+                                <tbody id="excel-tbody">
+                                    <tr><td colspan="6" class="loading-overlay"><span class="spinner"></span></td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ PAGE: PROCESSING ═══ -->
+            <div class="page" id="page-processing" style="display:none">
+                <div class="page-header">
+                    <h2>⚙️ Video Processing</h2>
+                    <div class="subtitle">Concatenation with outro and thumbnail extraction</div>
+                </div>
+                <div class="page-body">
+                    <div class="card mb-4">
+                        <div class="card-header"><h3>Processing Rules</h3></div>
+                        <div class="card-body">
+                            <div class="form-row">
+                                <label>Outro Rule</label>
+                                <select class="filter-select" id="outro-rule" style="flex:1">
+                                    <option value="every_second" selected>Every Second Video (default)</option>
+                                    <option value="every">Every Video</option>
+                                    <option value="none">No Outro</option>
+                                    <option value="manual">Manual Selection</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 mb-4 flex-wrap">
+                        <button id="btn-preview-processing" class="btn btn-secondary" onclick="previewProcessing()">👁️ Preview Sequence</button>
+                        <button id="btn-dry-run-processing" class="btn btn-secondary" onclick="startProcessing(true)">🔄 Dry Run</button>
+                        <button id="btn-start-processing" class="btn btn-primary" onclick="startProcessing(false)">🚀 Start Processing</button>
+                        <span id="processing-status-badge" class="status-pill scheduled" style="display:none; font-size:0.8rem; padding: 6px 14px;"></span>
+                    </div>
+
+                    <!-- Live Processing Progress Card -->
+                    <div id="processing-progress-card" class="card mb-4" style="display:none;">
+                        <div class="card-body">
+                            <div class="flex justify-between items-center mb-2">
+                                <span id="processing-progress-text" class="text-sm font-semibold" style="display:flex;align-items:center;gap:8px;">
+                                    <span class="spinner" style="width:14px;height:14px;"></span>
+                                    <span>Processing videos...</span>
+                                </span>
+                                <span id="processing-progress-percent" class="text-sm font-semibold" style="color:var(--accent-primary);">0%</span>
+                            </div>
+                            <div style="background:var(--bg-tertiary);border-radius:var(--radius-full);height:8px;overflow:hidden;width:100%;">
+                                <div id="processing-progress-bar" style="background:linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));height:100%;width:0%;transition:width 0.3s ease;"></div>
+                            </div>
+                            <div id="processing-progress-filename" class="text-xs text-muted mt-2 truncate"></div>
+                        </div>
+                    </div>
+
+                    <div class="stats-grid" id="processing-stats"></div>
+                    <div class="card">
+                        <div class="card-header"><h3>Processing Sequence</h3></div>
+                        <div class="card-body" style="overflow-x:auto;">
+                            <table class="data-table">
+                                <thead><tr><th>#</th><th>Filename</th><th>Gets Outro</th><th>End Video</th></tr></thead>
+                                <tbody id="processing-tbody">
+                                    <tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:20px;">Click "Preview Sequence" to see the processing plan</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ PAGE: THUMBNAILS ═══ -->
+            <div class="page" id="page-thumbnails" style="display:none">
+                <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h2>🖼️ Thumbnail Management</h2>
+                        <div class="subtitle">Extracted from the opening frame of each start video</div>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="scanThumbnails()">🖼️ Rescan & Verify Thumbnails</button>
+                </div>
+                <div class="page-body">
+                    <div class="thumb-grid" id="thumb-grid">
+                        <div class="loading-overlay" style="grid-column:1/-1"><span class="spinner"></span> Loading thumbnails...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ PAGE: CALENDAR ═══ -->
+            <div class="page" id="page-calendar" style="display:none">
+                <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div>
+                        <h2>📅 Publishing Calendar</h2>
+                        <div class="subtitle">3 daily slots: 08:30, 18:00, 21:00 IST — Click any video slot to edit time or status</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <select class="filter-select" id="calendar-platform-filter" onchange="loadCalendar()" style="font-size:0.8rem; padding:6px 10px;">
+                            <option value="">All Platforms</option>
+                            <option value="youtube">YouTube Only</option>
+                            <option value="instagram">Instagram Only</option>
+                            <option value="facebook">Facebook Only</option>
+                        </select>
+                        <button class="btn btn-secondary btn-sm" onclick="loadCalendar()">🔄 Refresh</button>
+                    </div>
+                </div>
+                <div class="page-body">
+                    <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+                        <div class="flex gap-3 items-center">
+                            <button class="btn btn-secondary btn-sm" onclick="calendarNav(-1)">← Prev Month</button>
+                            <span id="calendar-month" style="font-weight:700; font-size:1.1rem; color:var(--text-primary);"></span>
+                            <button class="btn btn-secondary btn-sm" onclick="calendarNav(1)">Next Month →</button>
+                        </div>
+                        <div class="flex gap-3 items-center text-xs text-muted flex-wrap">
+                            <span style="display:inline-flex; align-items:center; gap:5px;"><span class="slot-status-dot pending"></span> Pending</span>
+                            <span style="display:inline-flex; align-items:center; gap:5px;"><span class="slot-status-dot scheduled"></span> Scheduled</span>
+                            <span style="display:inline-flex; align-items:center; gap:5px;"><span class="slot-status-dot published"></span> Published</span>
+                            <span style="display:inline-flex; align-items:center; gap:5px;"><span class="slot-status-dot failed"></span> Failed</span>
+                            <span class="text-xs" style="color:var(--accent-primary); margin-left:8px;">💡 Click any slot to reschedule</span>
+                        </div>
+                    </div>
+                    <div class="calendar-grid" id="calendar-grid"></div>
+                </div>
+            </div>
+
+            <!-- ═══ PAGE: PUBLISHING QUEUE ═══ -->
+            <div class="page" id="page-queue" style="display:none">
+                <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div>
+                        <h2>📤 Publishing Queue</h2>
+                        <div class="subtitle">Track, select, reschedule, and execute browser automation publishing across all platforms</div>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <select class="filter-select" id="queue-exec-platform" style="font-size:0.8rem; padding:6px 10px;">
+                            <option value="">All Platforms (YT, IG, FB)</option>
+                            <option value="youtube">YouTube Shorts Only</option>
+                            <option value="instagram">Instagram Reels Only</option>
+                            <option value="facebook">Facebook Reels Only</option>
+                        </select>
+                        <select class="filter-select" id="queue-exec-limit" style="font-size:0.8rem; padding:6px 10px;">
+                            <option value="1">Upload Next 1 Video</option>
+                            <option value="3">Upload Today (3 Videos)</option>
+                            <option value="9">Upload 3 Days (9 Videos)</option>
+                            <option value="0" selected>Upload All Pending</option>
+                        </select>
+                        <label class="flex items-center gap-1" style="font-size:0.8rem; color:var(--text-secondary); cursor:pointer; user-select:none; margin-right:4px;">
+                            <input type="checkbox" id="queue-exec-visible" checked style="accent-color:var(--accent-primary);">
+                            <span>👁️ Open Browser Window</span>
+                        </label>
+                        <button id="btn-queue-toggle-console" class="btn btn-secondary btn-sm" onclick="toggleQueueConsole()" title="Toggle live terminal console">
+                            🖥️ Console
+                        </button>
+                        <button id="btn-queue-reset-failed" class="btn btn-secondary btn-sm" onclick="resetFailedQueueJobs()" title="Reset all failed jobs back to pending">
+                            🔄 Reset Failed
+                        </button>
+                        <button id="btn-queue-publish-dryrun" class="btn btn-secondary btn-sm" onclick="startQueuePublishing(true)">
+                            🔄 Dry Run
+                        </button>
+                        <button id="btn-queue-publish-live" class="btn btn-primary btn-sm" onclick="startQueuePublishing(false)" style="background:linear-gradient(135deg, #10b981, #059669); font-weight:700;">
+                            🚀 Start Uploading & Scheduling
+                        </button>
+                        <button id="btn-queue-publish-stop" class="btn btn-danger btn-sm" onclick="stopQueuePublishing()" style="display:none; background:linear-gradient(135deg, #ef4444, #dc2626); font-weight:700;">
+                            ⏹️ Stop Uploading
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Queue Execution Card -->
+                <div id="queue-publishing-card" class="card mb-4" style="display:none; background:#0d1117; border:1px solid #30363d;">
+                    <div class="card-header" style="background:#161b22; display:flex; justify-content:space-between; align-items:center; padding:10px 16px; border-bottom:1px solid #30363d;">
+                        <div class="flex items-center gap-2">
+                            <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#ff5f56;"></span>
+                            <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#ffbd2e;"></span>
+                            <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#27c93f;"></span>
+                            <span style="font-family:monospace; font-size:0.85rem; font-weight:600; color:#c9d1d9; margin-left:8px;">🚀 Live Browser Publishing Engine</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span id="queue-exec-badge" class="badge" style="background:#238636; color:#fff; font-size:0.75rem; padding:3px 8px; border-radius:4px;">Initializing...</span>
+                            <button id="btn-queue-console-stop" class="btn btn-sm btn-danger" onclick="stopQueuePublishing()" style="display:none; padding:2px 10px; font-size:0.75rem; background:#da3633; color:#fff; border:none; font-weight:600; border-radius:4px;">⏹️ Stop Engine</button>
+                            <button class="btn btn-sm btn-secondary" onclick="closeQueueConsole()" style="padding:2px 8px; font-size:0.75rem;">✕ Close</button>
+                        </div>
+                    </div>
+                    <div class="card-body" style="padding:14px; max-height:340px; overflow-y:auto; background:#0d1117;" id="queue-console-body">
+                        <pre id="queue-console-output" style="margin:0; font-family:'Fira Code', 'Consolas', monospace; font-size:0.82rem; line-height:1.55; color:#58a6ff; white-space:pre-wrap; word-break:break-all;"></pre>
+                    </div>
+                </div>
+
+                <div class="page-body">
+                    <div class="pipeline" id="queue-pipeline"></div>
+                    <div class="search-bar">
+                        <select class="filter-select" id="queue-platform-filter" onchange="loadQueue()">
+                            <option value="">All Platforms</option>
+                            <option value="youtube">YouTube</option>
+                            <option value="instagram">Instagram</option>
+                            <option value="facebook">Facebook</option>
+                        </select>
+                        <select class="filter-select" id="queue-status-filter" onchange="loadQueue()">
+                            <option value="">All Status</option>
+                            <option value="pending">Pending</option>
+                            <option value="uploading">Uploading</option>
+                            <option value="uploaded">Uploaded</option>
+                            <option value="scheduled">Scheduled</option>
+                            <option value="published">Published</option>
+                            <option value="failed">Failed</option>
+                            <option value="needs_attention">Needs Attention</option>
+                        </select>
+                        <input type="text" id="queue-search-input" class="search-input" placeholder="Search by video filename..." oninput="filterQueueRows()">
+                    </div>
+
+                    <!-- Bulk Actions Toolbar (Visible when rows selected) -->
+                    <div id="queue-bulk-bar" class="bulk-action-bar" style="display:none;">
+                        <div class="bulk-bar-left">
+                            <span class="bulk-count-badge" id="queue-selected-count">0 Selected</span>
+                            <span class="text-xs text-secondary font-semibold">Bulk Actions:</span>
+                        </div>
+                        <div class="bulk-bar-actions">
+                            <div class="flex items-center gap-2">
+                                <label class="text-xs text-muted">Change Status:</label>
+                                <select id="queue-bulk-status-select" class="filter-select" style="font-size:0.8rem; padding:4px 8px;">
+                                    <option value="pending">↺ Set to Pending (Reset Draft)</option>
+                                    <option value="scheduled">Set to Scheduled</option>
+                                    <option value="failed">Set to Failed</option>
+                                    <option value="published">Set to Published</option>
+                                </select>
+                                <button class="btn btn-primary btn-sm" onclick="applyBulkStatus()">Apply Status</button>
+                            </div>
+                            <button class="btn btn-secondary btn-sm" onclick="openBulkRescheduleModal()">🗓️ Reschedule Selected...</button>
+                            <button class="btn btn-secondary btn-sm" onclick="clearQueueSelection()">✕ Deselect All</button>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-body" style="overflow-x:auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width:36px; text-align:center;">
+                                            <input type="checkbox" id="queue-select-all" onchange="toggleSelectAllQueue(this.checked)" title="Select All / Deselect All">
+                                        </th>
+                                        <th>Video</th>
+                                        <th>Platform</th>
+                                        <th>Date</th>
+                                        <th>Time</th>
+                                        <th>Status</th>
+                                        <th>Attempts</th>
+                                        <th>URL</th>
+                                        <th style="text-align:right;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="queue-tbody">
+                                    <tr><td colspan="9" class="loading-overlay"><span class="spinner"></span></td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ PAGE: SETTINGS ═══ -->
+            <div class="page" id="page-settings" style="display:none">
+                <div class="page-header">
+                    <h2>⚙️ Settings</h2>
+                    <div class="subtitle">Application configuration</div>
+                </div>
+                <div class="page-body">
+                    <div class="card">
+                        <div class="card-body" id="settings-body">
+                            <div class="loading-overlay"><span class="spinner"></span></div>
+                        </div>
+                    </div>
+                    <div class="card mt-4">
+                        <div class="card-header"><h3>🌐 Browser Authentication</h3></div>
+                        <div class="card-body">
+                            <p class="text-sm text-muted mb-4">Open the browser with persistent profile to sign in to your accounts.</p>
+                            <button class="btn btn-primary" onclick="openBrowserLogin()">🔓 Open Browser for Login</button>
+                            <button class="btn btn-secondary" onclick="checkAuth()" style="margin-left:8px;">🔍 Check Auth Status</button>
+                            <button class="btn btn-secondary" onclick="closeBrowser()" style="margin-left:8px;">❌ Close Browser</button>
+                            <div id="auth-status" class="mt-4"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ═══ MODAL: RESCHEDULE & STATUS MANAGER ═══ -->
+    <div id="modal-reschedule" class="modal-backdrop" style="display:none;">
+        <div class="modal" style="max-width:540px;">
+            <div class="modal-header">
+                <h3 id="modal-reschedule-heading">🗓️ Reschedule & Change Status</h3>
+                <button class="btn btn-sm btn-secondary" onclick="closeRescheduleModal()" style="padding:2px 8px;">✕</button>
+            </div>
+            <div class="modal-body">
+                <!-- Job info preview (Single Job mode) -->
+                <div id="modal-job-info-card" class="card mb-4" style="background:var(--bg-tertiary); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+                    <div class="flex justify-between items-center mb-1">
+                        <span id="modal-job-platform-badge" class="platform-badge youtube">YOUTUBE</span>
+                        <span id="modal-job-status-pill" class="status-pill pending">pending</span>
+                    </div>
+                    <div id="modal-job-filename" style="font-weight:600; font-size:0.88rem; color:var(--text-primary); word-break:break-all;"></div>
+                    <div id="modal-job-current-schedule" class="text-xs text-muted mt-1">Current: 2026-10-20 @ 08:30 IST</div>
+                </div>
+
+                <!-- Bulk target info (Bulk mode) -->
+                <div id="modal-bulk-info-card" class="card mb-4" style="display:none; background:var(--bg-tertiary); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+                    <div style="font-weight:600; color:var(--accent-primary);" id="modal-bulk-count-text">Updating 0 selected jobs</div>
+                    <div class="text-xs text-muted mt-1">New date and time will be applied to all selected videos.</div>
+                </div>
+
+                <form id="form-reschedule" onsubmit="event.preventDefault(); submitReschedule();">
+                    <input type="hidden" id="modal-reschedule-job-id" value="">
+
+                    <div class="settings-group mb-3">
+                        <label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--text-secondary); margin-bottom:6px;">Scheduled Date</label>
+                        <input type="date" id="modal-reschedule-date" class="search-input" style="width:100%;" required>
+                    </div>
+
+                    <div class="settings-group mb-3">
+                        <label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--text-secondary); margin-bottom:6px;">Scheduled Time (IST)</label>
+                        <input type="time" id="modal-reschedule-time" class="search-input" style="width:100%;" required>
+                        <div class="flex gap-2 mt-2 flex-wrap">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="setModalTime('08:30')">🌅 08:30 IST</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="setModalTime('18:00')">🌆 18:00 IST</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="setModalTime('21:00')">🌙 21:00 IST</button>
+                        </div>
+                    </div>
+
+                    <div class="settings-group mb-3">
+                        <label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--text-secondary); margin-bottom:6px;">Change Status</label>
+                        <select id="modal-reschedule-status" class="filter-select" style="width:100%;">
+                            <option value="">Keep current status</option>
+                            <option value="pending">↺ Set to Pending (Ready for automated publishing)</option>
+                            <option value="scheduled">Set to Scheduled</option>
+                            <option value="failed">Set to Failed</option>
+                            <option value="published">Set to Published</option>
+                        </select>
+                        <div class="text-xs text-muted mt-1">
+                            💡 If a video was drafted or not scheduled on the platform, manually delete the draft and choose <strong>Pending</strong> to reschedule cleanly.
+                        </div>
+                    </div>
+
+                    <div class="settings-group mb-2" id="modal-sync-platforms-group">
+                        <label class="flex items-center gap-2" style="cursor:pointer; font-size:0.82rem; color:var(--text-primary); user-select:none;">
+                            <input type="checkbox" id="modal-reschedule-all-platforms" checked style="accent-color:var(--accent-primary); width:16px; height:16px;">
+                            <span>Apply new date & time to <strong>all platforms</strong> for this video (YouTube, Instagram, Facebook)</span>
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+                <button type="button" id="modal-btn-quick-pending" class="btn btn-secondary btn-sm" onclick="modalResetToPending()" title="Directly resets this job to Pending" style="border-color:#f59e0b; color:#fbbf24;">
+                    ↺ Mark Draft Deleted & Set Pending
+                </button>
+                <div class="flex gap-2">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="closeRescheduleModal()">Cancel</button>
+                    <button type="button" id="modal-btn-save" class="btn btn-primary btn-sm" onclick="submitReschedule()">💾 Save & Reschedule</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
