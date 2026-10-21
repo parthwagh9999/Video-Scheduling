@@ -98,6 +98,7 @@ def init_db(db_path=None):
         filename TEXT UNIQUE NOT NULL,
         seo_title TEXT,
         seo_description TEXT,
+        instagram_caption TEXT,
         word_count INTEGER,
         status TEXT DEFAULT 'Pending',
         scheduled_date TEXT,
@@ -212,6 +213,12 @@ def init_db(db_path=None):
         notes TEXT
     );
     """)
+
+    # Safe automated migrations for existing databases
+    cursor = conn.cursor()
+    cols = [r['name'] for r in cursor.execute("PRAGMA table_info(excel_records)").fetchall()]
+    if 'instagram_caption' not in cols:
+        cursor.execute("ALTER TABLE excel_records ADD COLUMN instagram_caption TEXT")
 
     conn.commit()
     return conn

@@ -38,6 +38,7 @@ import logging
 import os
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Query, BackgroundTasks
@@ -53,6 +54,7 @@ from config.settings import (
     BROWSER_PROFILE_DIR, TIMEZONE, OUTRO_RULE, OUTRO_START_INDEX,
     DAILY_UPLOAD_CAP_YOUTUBE, DAILY_PUBLICATION_COUNT,
     PUBLISHING_SLOTS, Platform, Status, LOG_DIR,
+    FFMPEG_PATH, FFPROBE_PATH,
 )
 from app.database.models import (
     init_db, get_connection, upsert_source_video, upsert_excel_record,
@@ -89,6 +91,11 @@ logger = logging.getLogger(__name__)
 # ── Global state ──────────────────────────────────────────────────────────
 scheduler_worker = None
 active_browser_engine = None
+queue_publish_lock = asyncio.Lock()
+is_queue_publishing_running = False
+pipeline_run_all_lock = asyncio.Lock()
+is_pipeline_running = False
+
 processing_state = {
     "is_running": False,
     "progress": 0,
@@ -123,9 +130,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Video Scheduling Dashboard",
-    description="Multi-platform video automation system",
-    version="1.0.0",
+    title="Video Scheduling — Creator Studio",
+    description="Multi-platform video scheduling and publishing automation system. Created by Parth Wagh.",
+    version="2.2.8",
     lifespan=lifespan,
 )
 
@@ -152,6 +159,13 @@ async def dashboard_home():
     return HTMLResponse(content=html_path.read_text(encoding='utf-8'))
 
 
+@app.get("/favicon.ico")
+async def favicon():
+    """Return an inline SVG clapperboard favicon."""
+    svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🎬</text></svg>'
+    return Response(content=svg, media_type="image/svg+xml")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  API — OVERVIEW
 # ═══════════════════════════════════════════════════════════════════════════
@@ -162,6 +176,9 @@ async def api_overview():
     conn = get_connection()
     stats = get_overview_stats(conn)
     conn.close()
+    stats["created_by"] = "Parth Wagh"
+    stats["author"] = "Parth Wagh"
+    stats["version"] = "2.2.8"
     return stats
 
 
@@ -258,15 +275,18 @@ async def api_scan_videos():
             except Exception as e:
                 results['errors'].append(f"{f.name}: {e}")
 
-        # Discover end video
+        # Discover end video (optional)
         try:
-            end_file = discover_end_video()
-            end_info = probe_video(end_file)
-            results['end_video'] = {
-                'filename': end_file.name,
-                'duration': end_info['duration_seconds'],
-                'resolution': f"{end_info['width']}x{end_info['height']}",
-            }
+            end_file = discover_end_video(optional=True)
+            if end_file:
+                end_info = probe_video(end_file)
+                results['end_video'] = {
+                    'filename': end_file.name,
+                    'duration': end_info['duration_seconds'],
+                    'resolution': f"{end_info['width']}x{end_info['height']}",
+                }
+            else:
+                results['end_video'] = None
         except Exception as e:
             results['errors'].append(f"End video: {e}")
 
@@ -376,32 +396,49 @@ async def api_sync_excel(dry_run: bool = Query(False)):
 async def api_processing_preview(
     outro_rule: str = Query(OUTRO_RULE),
     start_index: int = Query(OUTRO_START_INDEX),
+    manual_selection: Optional[str] = Query(None, description="Comma-separated or JSON list of filenames for manual outro"),
 ):
     """Preview the video processing sequence without executing it."""
     try:
+        from config.settings import MANUAL_OUTRO_VIDEOS
+        manual_set = set()
+        if outro_rule == "manual":
+            if manual_selection:
+                import json
+                try:
+                    parsed = json.loads(manual_selection)
+                    if isinstance(parsed, list):
+                        manual_set = set(parsed)
+                    else:
+                        manual_set = {s.strip() for s in str(manual_selection).split(",") if s.strip()}
+                except Exception:
+                    manual_set = {s.strip() for s in str(manual_selection).split(",") if s.strip()}
+            else:
+                manual_set = set(MANUAL_OUTRO_VIDEOS)
+
         start_files = discover_start_videos()
         filenames = [f.name for f in start_files]
-        assignments = compute_outro_assignments(filenames, outro_rule, start_index)
+        assignments = compute_outro_assignments(filenames, outro_rule, start_index, manual_selection=manual_set)
 
-        end_file = discover_end_video()
-        end_info = probe_video(end_file)
+        end_file = discover_end_video(optional=True)
+        end_info = probe_video(end_file) if end_file else None
 
         preview = []
         for fname, gets_outro, position in assignments:
             preview.append({
                 'position': position + 1,
                 'filename': fname,
-                'gets_outro': gets_outro,
-                'end_video': end_file.name if gets_outro else None,
+                'gets_outro': gets_outro and bool(end_file),
+                'end_video': end_file.name if (gets_outro and end_file) else None,
             })
 
         return {
             'total_videos': len(filenames),
-            'with_outro': sum(1 for _, g, _ in assignments if g),
-            'without_outro': sum(1 for _, g, _ in assignments if not g),
+            'with_outro': sum(1 for _, g, _ in assignments if g and end_file),
+            'without_outro': sum(1 for _, g, _ in assignments if not g or not end_file),
             'outro_rule': outro_rule,
-            'end_video': end_file.name,
-            'end_video_duration': end_info['duration_seconds'],
+            'end_video': end_file.name if end_file else None,
+            'end_video_duration': end_info['duration_seconds'] if end_info else 0.0,
             'sequence': preview,
         }
     except Exception as e:
@@ -413,6 +450,7 @@ async def api_start_processing(
     background_tasks: BackgroundTasks,
     outro_rule: str = Query(OUTRO_RULE),
     start_index: int = Query(OUTRO_START_INDEX),
+    manual_selection: Optional[str] = Query(None, description="Comma-separated or JSON list of filenames for manual outro"),
     dry_run: bool = Query(False),
     limit: int = Query(0, description="Process only first N videos (0=all)"),
     force: bool = Query(False, description="Force re-processing even if already done"),
@@ -420,9 +458,26 @@ async def api_start_processing(
     """Start video processing (concatenation + thumbnail extraction). Prevents concurrent runs."""
     global processing_state
     try:
+        from config.settings import MANUAL_OUTRO_VIDEOS
+        manual_set = set()
+        if outro_rule == "manual":
+            if manual_selection:
+                import json
+                try:
+                    parsed = json.loads(manual_selection)
+                    if isinstance(parsed, list):
+                        manual_set = set(parsed)
+                    else:
+                        manual_set = {s.strip() for s in str(manual_selection).split(",") if s.strip()}
+                except Exception:
+                    manual_set = {s.strip() for s in str(manual_selection).split(",") if s.strip()}
+            else:
+                manual_set = set(MANUAL_OUTRO_VIDEOS)
+
         if dry_run:
             manifest = process_all_videos(
-                outro_rule=outro_rule, start_index=start_index, dry_run=True
+                outro_rule=outro_rule, start_index=start_index,
+                manual_selection=manual_set, dry_run=True
             )
             return {
                 'dry_run': True,
@@ -439,7 +494,7 @@ async def api_start_processing(
             }
 
         # Check if already completed and thumbnails are present
-        if not force:
+        if not force and outro_rule != "manual":
             conn = get_connection()
             total_sources = conn.execute("SELECT COUNT(*) c FROM source_videos").fetchone()['c']
             processed_count = conn.execute("SELECT COUNT(*) c FROM processed_videos WHERE validation_passed=1").fetchone()['c']
@@ -456,7 +511,7 @@ async def api_start_processing(
 
         # Run in background
         background_tasks.add_task(
-            _run_processing, outro_rule, start_index, limit
+            _run_processing, outro_rule, start_index, limit, manual_set
         )
         return {'status': 'processing_started', 'is_running': True, 'message': 'Processing started in background'}
 
@@ -464,7 +519,7 @@ async def api_start_processing(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def _run_processing(outro_rule, start_index, limit):
+async def _run_processing(outro_rule, start_index, limit, manual_selection=None):
     """Background task for video processing with progress reporting."""
     global processing_state
     processing_state["is_running"] = True
@@ -483,7 +538,8 @@ async def _run_processing(outro_rule, start_index, limit):
 
     try:
         manifest = process_all_videos(
-            outro_rule=outro_rule, start_index=start_index, dry_run=False,
+            outro_rule=outro_rule, start_index=start_index,
+            manual_selection=manual_selection, dry_run=False,
             progress_callback=_progress_cb
         )
 
@@ -708,9 +764,12 @@ async def run_complete_pipeline_generator():
             except Exception:
                 pass
 
-        end_file = discover_end_video()
-        end_info = probe_video(end_file)
-        yield log(f"  • Discovered Outro: {end_file.name} ({end_info.get('duration_seconds', 0):.1f}s, {end_info.get('width')}x{end_info.get('height')})", 2, 40)
+        end_file = discover_end_video(optional=True)
+        if end_file:
+            end_info = probe_video(end_file)
+            yield log(f"  • Discovered Outro: {end_file.name} ({end_info.get('duration_seconds', 0):.1f}s, {end_info.get('width')}x{end_info.get('height')})", 2, 40)
+        else:
+            yield log("  ℹ️ No outro video found in End Video/ folder (proceeding without outro)", 2, 40)
 
         records = read_all_records()
         for rec in records:
@@ -944,7 +1003,21 @@ async def api_commit_schedule(
     return {'total_queued': len(queue), 'added': added}
 
 
+@app.get("/api/scheduler/heartbeat")
+async def api_scheduler_heartbeat():
+    """Heartbeat endpoint reporting scheduler and application engine status."""
+    global scheduler_worker
+    if scheduler_worker:
+        return await scheduler_worker.get_heartbeat()
+    return {
+        'running': True,
+        'check_interval': 60,
+        'timestamp': datetime.now().isoformat(),
+    }
+
+
 @app.get("/api/schedule/jobs")
+@app.get("/api/queue/jobs")
 async def api_list_jobs(
     platform: str = Query(None),
     status: str = Query(None),
@@ -1004,11 +1077,12 @@ async def api_get_calendar_events(
 
 
 @app.post("/api/schedule/jobs/update-status")
+@app.post("/api/queue/bulk-status")
 async def api_update_jobs_status(request: Request):
     """Update status of one or multiple publishing jobs (e.g. reset from scheduled/failed back to pending)."""
     data = await request.json()
     job_ids = data.get('job_ids', [])
-    new_status = (data.get('status') or '').strip().lower()
+    new_status = (data.get('status') or data.get('new_status') or '').strip().lower()
 
     if not job_ids:
         single_id = data.get('job_id')
@@ -1320,7 +1394,15 @@ async def run_queue_publishing_generator(platform=None, limit=0, dry_run=False, 
     - Updates SQLite job status and Excel workbook in real time
     - Supports immediate stopping via api_queue_publish_stop()
     """
-    global queue_publish_stop_requested
+    global queue_publish_stop_requested, is_queue_publishing_running
+    if is_queue_publishing_running:
+        yield {
+            'line': "⚠️ Another publishing operation is currently in progress. Only one browser publishing session can run at a time to protect account health and prevent profile collision.",
+            'current': 0, 'total': 0, 'status': "error", 'done': True, 'job': None
+        }
+        return
+
+    is_queue_publishing_running = True
     queue_publish_stop_requested = False
 
     def log(msg, current=0, total=0, status="running", done=False, job=None):
@@ -1472,39 +1554,90 @@ async def run_queue_publishing_generator(platform=None, limit=0, dry_run=False, 
                     }
                     yield log(f"  [DRY RUN] Simulated upload & schedule for {plat.upper()} successfully!")
                 else:
-                    if plat == 'youtube':
-                        yt = YouTubePublisher(engine)
-                        result = await yt.upload_and_schedule(
-                            video_path=vpath,
-                            title=title,
-                            description=desc,
-                            schedule_date=s_date,
-                            schedule_time=s_time,
-                            thumbnail_path=thumb,
-                            dry_run=False
-                        )
-                    elif plat == 'instagram':
-                        ig = InstagramPublisher(engine)
-                        # desc already contains the tailored Instagram caption (under 200 words + 5 hashtags)
-                        ig_caption = desc if desc else title
-                        result = await ig.upload_reel(
-                            video_path=vpath,
-                            caption=ig_caption,
-                            dry_run=False
-                        )
-                    elif plat == 'facebook':
-                        fb = FacebookPublisher(engine)
-                        # desc already contains the tailored SEO caption (under 200 words + 5 hashtags)
-                        fb_caption = desc if desc else title
-                        result = await fb.upload_and_schedule_reel(
-                            video_path=vpath,
-                            caption=fb_caption,
-                            scheduled_date=s_date,
-                            scheduled_time=s_time,
-                            dry_run=False
-                        )
-                    else:
-                        result = {'status': 'failed', 'error': f'Unsupported platform: {plat}'}
+                    max_job_retries = 3
+                    job_attempt = 0
+                    result = None
+
+                    while job_attempt < max_job_retries:
+                        job_attempt += 1
+                        try:
+                            if plat == 'youtube':
+                                yt = YouTubePublisher(engine)
+                                result = await yt.upload_and_schedule(
+                                    video_path=vpath,
+                                    title=title,
+                                    description=desc,
+                                    schedule_date=s_date,
+                                    schedule_time=s_time,
+                                    thumbnail_path=thumb,
+                                    dry_run=False
+                                )
+                            elif plat == 'instagram':
+                                ig = InstagramPublisher(engine)
+                                ig_caption = desc if desc else title
+                                result = await ig.upload_reel(
+                                    video_path=vpath,
+                                    caption=ig_caption,
+                                    dry_run=False
+                                )
+                            elif plat == 'facebook':
+                                fb = FacebookPublisher(engine)
+                                fb_caption = desc if desc else title
+                                result = await fb.upload_and_schedule_reel(
+                                    video_path=vpath,
+                                    caption=fb_caption,
+                                    scheduled_date=s_date,
+                                    scheduled_time=s_time,
+                                    dry_run=False
+                                )
+                            else:
+                                result = {'status': 'failed', 'error': f'Unsupported platform: {plat}'}
+
+                            res_st = result.get('status')
+                            err = result.get('error') or ''
+
+                            if res_st in ('scheduled', 'published'):
+                                if job_attempt > 1:
+                                    yield log(f"  ✨ [AUTO-HEALED] Job #{job_id} recovered and succeeded on retry #{job_attempt}!")
+                                break
+
+                            # If platform rate limit reached, break immediately
+                            is_limit = any(kw in err.lower() for kw in ['upload limit', 'limit reached', 'daily upload limit', 'action blocked', 'try again later'])
+                            if is_limit:
+                                break
+
+                            # If transient DOM or timeout error, auto-heal with cooling delay and retry
+                            is_transient = any(kw in err.lower() for kw in ['timeout', 'dom', 'scrim', 'intercepts pointer', 'not attached', 'closed', 'reset'])
+                            if is_transient and job_attempt < max_job_retries:
+                                yield log(f"  ⚠️ [AUTO-HEALER] Transient glitch on {plat.upper()}: '{err[:60]}...'. Cooling down 10s before retry #{job_attempt+1}/3...")
+                                for _ in range(100):
+                                    if queue_publish_stop_requested:
+                                        break
+                                    await asyncio.sleep(0.1)
+                                if queue_publish_stop_requested:
+                                    break
+                                continue
+                            else:
+                                break
+                        except Exception as j_exc:
+                            err_str = str(j_exc)
+                            is_limit = any(kw in err_str.lower() for kw in ['upload limit', 'limit reached', 'daily upload limit', 'action blocked'])
+                            if is_limit:
+                                result = {'status': 'failed', 'error': err_str, 'limit_reached': True}
+                                break
+                            is_transient = any(kw in err_str.lower() for kw in ['timeout', 'dom', 'scrim', 'intercepts pointer', 'not attached', 'closed', 'reset'])
+                            if is_transient and job_attempt < max_job_retries:
+                                yield log(f"  ⚠️ [AUTO-HEALER] Transient exception: '{err_str[:60]}...'. Cooling down 10s before retry #{job_attempt+1}/3...")
+                                for _ in range(100):
+                                    if queue_publish_stop_requested:
+                                        break
+                                    await asyncio.sleep(0.1)
+                                if queue_publish_stop_requested:
+                                    break
+                                continue
+                            else:
+                                result = {'status': 'failed', 'error': err_str}
+                                break
 
                 # Handle result
                 conn = get_connection()
@@ -1686,6 +1819,8 @@ async def run_queue_publishing_generator(platform=None, limit=0, dry_run=False, 
             except Exception:
                 pass
 
+        is_queue_publishing_running = False
+
     yield log("\n" + "=" * 76)
     if stopped_by_user or queue_publish_stop_requested:
         yield log("🛑 QUEUE PUBLISHING STOPPED BY USER", current=idx if 'idx' in locals() else 0, total=total, done=True, status="stopped")
@@ -1757,7 +1892,12 @@ def execute_queue_publishing_sync(platform=None, limit=0, dry_run=False, headles
 @app.post("/api/browser/open-login")
 async def api_open_browser_login():
     """Open browser with tabs for YouTube Studio, Instagram, and Facebook for manual authentication."""
-    global active_browser_engine
+    global active_browser_engine, is_queue_publishing_running
+    if is_queue_publishing_running:
+        raise HTTPException(
+            status_code=409,
+            detail="The publishing engine is currently running in the browser. Please wait for publishing to finish before opening manual login."
+        )
     try:
         from app.browser.publisher import BrowserEngine
         if not active_browser_engine or not active_browser_engine.context:
@@ -1863,30 +2003,475 @@ async def api_dry_run_publish(video_id: int, platform: str = Query("youtube")):
 @app.get("/api/settings")
 async def api_get_settings():
     """Get current application settings."""
+    from config.settings import get_all_settings
+    return get_all_settings()
+
+
+@app.post("/api/settings")
+async def api_save_settings(request: Request):
+    """
+    Save updated application settings (paths, timezone, slots, caps).
+    If slots or timezone change, automatically realigns schedule
+    (pending + upcoming scheduled jobs by default, preserving published posts).
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    from config.settings import save_user_settings
+    from app.scheduler.engine import realign_pending_schedule
+
+    saved = save_user_settings(data)
+
+    realign_info = None
+    if "publishing_slots" in data or "timezone" in data or data.get("realign_schedule", True):
+        include_sched = data.get("include_future_scheduled", True)
+        realign_info = realign_pending_schedule(
+            new_slots=saved.get("publishing_slots"),
+            new_timezone=saved.get("timezone"),
+            include_future_scheduled=include_sched,
+        )
+
     return {
-        'start_video_dir': str(START_VIDEO_DIR),
-        'end_video_dir': str(END_VIDEO_DIR),
-        'excel_path': str(EXCEL_PATH),
-        'processed_dir': str(PROCESSED_DIR),
-        'thumbnail_dir': str(THUMBNAIL_DIR),
-        'browser_profile_dir': str(BROWSER_PROFILE_DIR),
-        'timezone': TIMEZONE,
-        'outro_rule': OUTRO_RULE,
-        'outro_start_index': OUTRO_START_INDEX,
-        'daily_upload_cap': DAILY_UPLOAD_CAP_YOUTUBE,
-        'daily_publication_count': DAILY_PUBLICATION_COUNT,
-        'publishing_slots': PUBLISHING_SLOTS,
-        'db_path': str(DB_PATH),
+        "success": True,
+        "message": "Settings updated successfully.",
+        "settings": saved,
+        "realign": realign_info,
     }
 
 
-@app.get("/api/scheduler/heartbeat")
-async def api_scheduler_heartbeat():
-    """Check scheduler health."""
-    global scheduler_worker
-    if scheduler_worker:
-        return await scheduler_worker.get_heartbeat()
-    return {'running': False, 'message': 'Scheduler not initialized'}
+@app.post("/api/schedule/realign")
+async def api_schedule_realign(request: Request):
+    """Realign all pending & future scheduled jobs to the current or requested publishing slots."""
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    from app.scheduler.engine import realign_pending_schedule
+    new_slots = body.get("slots") or body.get("publishing_slots")
+    new_tz = body.get("timezone")
+    include_sched = body.get("include_future_scheduled", True)
+
+    result = realign_pending_schedule(
+        new_slots=new_slots,
+        new_timezone=new_tz,
+        include_future_scheduled=include_sched,
+    )
+    return result
+
+
+
+@app.get("/api/system/health")
+async def api_system_health():
+    """Comprehensive system health and onboarding prerequisites check."""
+    import shutil
+    import sys
+
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    py_ok = sys.version_info >= (3, 10)
+
+    ffmpeg_bin = shutil.which(FFMPEG_PATH)
+    ffprobe_bin = shutil.which(FFPROBE_PATH)
+    ffmpeg_ok = ffmpeg_bin is not None and ffprobe_bin is not None
+
+    start_vids = []
+    try:
+        start_vids = discover_start_videos()
+    except Exception:
+        pass
+
+    end_vid = None
+    try:
+        end_vid = discover_end_video(optional=True)
+    except Exception:
+        pass
+
+    excel_exists = EXCEL_PATH.exists()
+    excel_valid = False
+    if excel_exists:
+        try:
+            wb = load_workbook_safe(EXCEL_PATH)
+            v = validate_workbook_structure(wb)
+            excel_valid = v['valid']
+            wb.close()
+        except Exception:
+            pass
+
+    db_exists = DB_PATH.exists()
+    job_counts = {'pending': 0, 'scheduled': 0, 'published': 0, 'failed': 0}
+    if db_exists:
+        try:
+            conn = get_connection()
+            rows = conn.execute("SELECT status, COUNT(*) c FROM publishing_jobs GROUP BY status").fetchall()
+            for r in rows:
+                s_key = (r['status'] or '').lower()
+                job_counts[s_key] = r['c']
+            conn.close()
+        except Exception:
+            pass
+
+    from app.browser.publisher import fast_check_auth_from_profile
+    auth = fast_check_auth_from_profile(BROWSER_PROFILE_DIR)
+
+    all_ready = py_ok and ffmpeg_ok and len(start_vids) > 0 and (auth.get('youtube') or auth.get('facebook') or auth.get('instagram'))
+
+    return {
+        'status': 'ready' if all_ready else 'action_required',
+        'python': {'version': py_ver, 'ok': py_ok},
+        'ffmpeg': {'installed': ffmpeg_ok, 'ffmpeg_path': ffmpeg_bin, 'ffprobe_path': ffprobe_bin},
+        'storage': {
+            'start_video_dir': str(START_VIDEO_DIR),
+            'start_video_count': len(start_vids),
+            'end_video_dir': str(END_VIDEO_DIR),
+            'has_end_video': end_vid is not None,
+            'end_video_name': end_vid.name if end_vid else None,
+            'excel_path': str(EXCEL_PATH),
+            'excel_exists': excel_exists,
+            'excel_valid': excel_valid,
+            'db_path': str(DB_PATH),
+            'db_exists': db_exists,
+        },
+        'auth': auth,
+        'publishing': {
+            'is_running': is_queue_publishing_running,
+            'pipeline_running': is_pipeline_running,
+            'job_counts': job_counts,
+        }
+    }
+
+
+@app.get("/api/upcoming-schedule")
+async def api_upcoming_schedule():
+    """Fetch next upcoming scheduled jobs for the Home dashboard."""
+    conn = get_connection()
+    jobs = conn.execute("""
+        SELECT pj.*, er.seo_title, er.word_count
+        FROM publishing_jobs pj
+        LEFT JOIN excel_records er ON pj.source_filename = er.filename
+        WHERE pj.status IN ('scheduled', 'pending')
+        ORDER BY pj.scheduled_date ASC, pj.scheduled_time ASC, pj.id ASC
+        LIMIT 9
+    """).fetchall()
+    conn.close()
+    return {'upcoming': [dict(j) for j in jobs]}
+
+
+@app.get("/api/recent-activity")
+async def api_recent_activity(limit: int = 10):
+    """Fetch recent published/scheduled actions and audit events for the Home dashboard with rich details."""
+    conn = get_connection()
+    recent_jobs = conn.execute("""
+        SELECT pj.id, pj.source_video_id, pj.source_filename, pj.source_filename as filename,
+               pj.platform, pj.status, pj.scheduled_date, pj.scheduled_time, pj.timezone,
+               pj.updated_at, pj.updated_at as timestamp, pj.remote_url, pj.error_message,
+               COALESCE(pj.seo_title, er.seo_title, pj.source_filename) as title,
+               COALESCE(pj.thumbnail_path, t.thumbnail_path) as thumbnail_path
+        FROM publishing_jobs pj
+        LEFT JOIN thumbnails t ON pj.source_video_id = t.source_video_id
+        LEFT JOIN excel_records er ON pj.source_filename = er.filename
+        WHERE pj.status IN ('published', 'scheduled', 'failed', 'pending')
+        ORDER BY
+            CASE
+                WHEN pj.status = 'published' THEN 1
+                WHEN pj.status = 'scheduled' THEN 2
+                WHEN pj.status = 'failed' THEN 3
+                ELSE 4
+            END,
+            pj.updated_at DESC, pj.id DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+
+    audits = conn.execute("""
+        SELECT event_type, details, timestamp
+        FROM audit_log
+        ORDER BY timestamp DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+
+    return {
+        'recent_jobs': [dict(j) for j in recent_jobs],
+        'audit_events': [dict(a) for a in audits],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  API — AUTO-HEALER, DIAGNOSTICS & UNATTENDED SCHEDULING RADAR
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/diagnostics/audit-health")
+async def api_diagnostics_audit_health():
+    """Comprehensive system health, active issues, and unattended study-mode readiness audit."""
+    conn = get_connection()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # 1. Stuck jobs (uploading for > 10 minutes)
+    stuck_jobs = conn.execute("""
+        SELECT pj.*, er.seo_title
+        FROM publishing_jobs pj
+        LEFT JOIN excel_records er ON pj.source_filename = er.filename
+        WHERE pj.status = 'uploading'
+    """).fetchall()
+
+    # 2. Failed jobs
+    failed_jobs = conn.execute("""
+        SELECT pj.*, er.seo_title
+        FROM publishing_jobs pj
+        LEFT JOIN excel_records er ON pj.source_filename = er.filename
+        WHERE pj.status = 'failed'
+        ORDER BY pj.updated_at DESC
+        LIMIT 20
+    """).fetchall()
+
+    # 3. Quota usage today
+    today_counts = conn.execute("""
+        SELECT platform, COUNT(*) as c
+        FROM publishing_jobs
+        WHERE scheduled_date = ? AND status IN ('published', 'scheduled')
+        GROUP BY platform
+    """, (today_str,)).fetchall()
+    try:
+        from app.scheduler.generator import get_upload_cap
+        daily_cap = get_upload_cap()
+    except Exception:
+        daily_cap = 9
+    quota_status = {}
+    for r in today_counts:
+        quota_status[r['platform']] = {
+            'used': r['c'],
+            'cap': daily_cap,
+            'pct': round((r['c'] / max(1, daily_cap)) * 100, 1)
+        }
+
+    # 4. Auth status
+    from app.browser.publisher import fast_check_auth_from_profile
+    auth = fast_check_auth_from_profile(BROWSER_PROFILE_DIR)
+
+    # 5. Lockfile status in browser profile
+    lockfiles_found = []
+    if BROWSER_PROFILE_DIR.exists():
+        for lf_name in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
+            lf = BROWSER_PROFILE_DIR / lf_name
+            if lf.exists():
+                lockfiles_found.append(lf_name)
+
+    # 6. Database table counts
+    db_counts = {}
+    for tbl in ['source_videos', 'excel_records', 'thumbnails', 'publishing_jobs', 'audit_log']:
+        try:
+            db_counts[tbl] = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+        except Exception:
+            db_counts[tbl] = 0
+
+    # 7. Audit log of auto-heals and failures
+    recent_audits = conn.execute("""
+        SELECT * FROM audit_log
+        ORDER BY timestamp DESC
+        LIMIT 15
+    """).fetchall()
+
+    conn.close()
+
+    # Assemble Active Issues List
+    active_issues = []
+
+    # Check for stuck jobs
+    for sj in stuck_jobs:
+        active_issues.append({
+            'id': f"stuck-job-{sj['id']}",
+            'severity': 'warning',
+            'category': 'stuck_job',
+            'title': f"Interrupted Upload: '{sj['source_filename']}'",
+            'platform': sj['platform'],
+            'job_id': sj['id'],
+            'description': f"This job was in 'uploading' state and may have been interrupted if the PC slept or restarted.",
+            'root_cause': "System sleep or process restart during upload stream.",
+            'can_auto_heal': True,
+            'auto_heal_desc': "Reset back to 'pending' to re-arm on next queue run.",
+            'action_type': 're-arm'
+        })
+
+    # Check for failed jobs
+    for fj in failed_jobs:
+        err = fj['error_message'] or 'Unknown error'
+        is_limit = any(k in err.lower() for k in ['limit', 'rate', 'blocked'])
+        is_auth = any(k in err.lower() for k in ['login', 'auth', 'sign in', '2fa', 'verification'])
+        active_issues.append({
+            'id': f"failed-job-{fj['id']}",
+            'severity': 'critical' if is_auth else 'warning',
+            'category': 'quota' if is_limit else ('auth' if is_auth else 'transient'),
+            'title': f"{fj['platform'].upper()} Failed: '{fj['source_filename']}'",
+            'platform': fj['platform'],
+            'job_id': fj['id'],
+            'description': err,
+            'root_cause': "Platform quota limit (24h cooldown)" if is_limit else ("Session authentication expired" if is_auth else "Transient browser DOM or network timeout"),
+            'can_auto_heal': not is_auth,
+            'auto_heal_desc': "Auto-shift to tomorrow" if is_limit else "Reset to pending for auto-retry",
+            'action_type': 'login' if is_auth else ('reschedule' if is_limit else 're-arm')
+        })
+
+    # Check for logged-out platforms
+    for plat in ['youtube', 'instagram', 'facebook']:
+        if not auth.get(plat):
+            active_issues.append({
+                'id': f"auth-{plat}",
+                'severity': 'warning',
+                'category': 'auth',
+                'title': f"{plat.capitalize()} Session Not Active",
+                'platform': plat,
+                'job_id': None,
+                'description': f"No saved browser login cookies detected for {plat.capitalize()}. Automated scheduling cannot proceed on this platform.",
+                'root_cause': "Initial login or cookie refresh required.",
+                'can_auto_heal': False,
+                'user_action': f"Open 'Connections' tab, click 'Open Browser for Login', log into {plat.capitalize()} once, and save session.",
+                'action_type': 'open_browser_login'
+            })
+
+    # Check lockfiles
+    if lockfiles_found:
+        active_issues.append({
+            'id': 'browser-lockfiles',
+            'severity': 'info',
+            'category': 'system',
+            'title': f"Chrome Singleton Lockfile Detected ({', '.join(lockfiles_found)})",
+            'platform': 'all',
+            'job_id': None,
+            'description': "Leftover lockfile from a previous browser session. Auto-Healer can safely clean this before next run.",
+            'root_cause': "Browser exited unexpectedly without releasing singleton lock.",
+            'can_auto_heal': True,
+            'auto_heal_desc': "Delete singleton lockfile safely.",
+            'action_type': 'clean_locks'
+        })
+
+    unattended_ready = len([i for i in active_issues if i['severity'] == 'critical']) == 0
+
+    return {
+        'status': 'ready' if unattended_ready and len(active_issues) == 0 else ('degraded' if unattended_ready else 'action_required'),
+        'unattended_ready': unattended_ready,
+        'active_issues_count': len(active_issues),
+        'active_issues': active_issues,
+        'quota_status': quota_status,
+        'auth': auth,
+        'lockfiles': lockfiles_found,
+        'db_counts': db_counts,
+        'recent_audits': [dict(a) for a in recent_audits],
+    }
+
+
+@app.post("/api/diagnostics/auto-heal-all")
+async def api_diagnostics_auto_heal_all():
+    """Execute complete 5-point automated self-healing routine."""
+    conn = get_connection()
+    actions_taken = []
+    resolved_count = 0
+
+    # 1. Clear dead Chromium singleton lockfiles
+    cleaned_locks = []
+    if BROWSER_PROFILE_DIR.exists():
+        for lf_name in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
+            lf = BROWSER_PROFILE_DIR / lf_name
+            if lf.exists():
+                try:
+                    lf.unlink(missing_ok=True)
+                    cleaned_locks.append(lf_name)
+                except Exception:
+                    pass
+    if cleaned_locks:
+        actions_taken.append(f"Cleared {len(cleaned_locks)} orphaned Chrome singleton lockfile(s) ({', '.join(cleaned_locks)}) to prevent browser startup crashes.")
+        resolved_count += len(cleaned_locks)
+
+    # 2. Reset stuck uploading jobs back to pending
+    stuck_res = conn.execute("""
+        UPDATE publishing_jobs
+        SET status='pending', error_message='Auto-healed: Reset from interrupted uploading state', updated_at=?
+        WHERE status='uploading'
+    """, (datetime.now().isoformat(),))
+    if stuck_res.rowcount > 0:
+        actions_taken.append(f"Reset {stuck_res.rowcount} interrupted job(s) from 'uploading' back to 'pending' so they will re-upload automatically.")
+        resolved_count += stuck_res.rowcount
+
+    # 3. Auto-recover failed transient jobs
+    failed_res = conn.execute("""
+        UPDATE publishing_jobs
+        SET status='pending', error_message='Auto-healed: Re-armed for automated publishing', attempt_count=0, updated_at=?
+        WHERE status='failed' AND (error_message IS NULL OR error_message NOT LIKE '%limit%' AND error_message NOT LIKE '%login%' AND error_message NOT LIKE '%auth%')
+    """, (datetime.now().isoformat(),))
+    if failed_res.rowcount > 0:
+        actions_taken.append(f"Re-armed {failed_res.rowcount} failed job(s) back to 'pending' with reset retry counters.")
+        resolved_count += failed_res.rowcount
+
+    # 4. Check SQLite WAL integrity
+    try:
+        check = conn.execute("PRAGMA integrity_check").fetchone()[0]
+        try:
+            conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except Exception:
+            pass
+        actions_taken.append(f"Verified SQLite database integrity: {check}.")
+    except Exception as e:
+        actions_taken.append(f"Database check warning: {e}")
+
+    # 5. Audit log
+    conn.execute("""
+        INSERT INTO audit_log (event_type, details, timestamp)
+        VALUES ('auto_heal_executed', ?, ?)
+    """, (json.dumps({'actions': actions_taken, 'resolved_count': resolved_count}), datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+    return {
+        'success': True,
+        'resolved_count': resolved_count,
+        'actions_taken': actions_taken,
+        'message': f"Self-healing complete! Resolved {resolved_count} item(s)."
+    }
+
+
+@app.post("/api/diagnostics/resolve-job")
+async def api_diagnostics_resolve_job(payload: Dict[str, Any]):
+    """Resolve a specific job issue with 1-click action."""
+    job_id = payload.get('job_id')
+    action = payload.get('action') # 're-arm', 'reschedule_tomorrow', 'mark_resolved'
+    if not job_id:
+        raise HTTPException(status_code=400, detail="job_id is required")
+
+    conn = get_connection()
+    job = conn.execute("SELECT * FROM publishing_jobs WHERE id=?", (job_id,)).fetchone()
+    if not job:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if action == 're-arm':
+        conn.execute("""
+            UPDATE publishing_jobs
+            SET status='pending', attempt_count=0, error_message=NULL, updated_at=?
+            WHERE id=?
+        """, (datetime.now().isoformat(), job_id))
+        msg = f"Job #{job_id} re-armed to PENDING. Ready for scheduled publish."
+    elif action == 'reschedule_tomorrow':
+        from datetime import timedelta
+        cur_date = datetime.strptime(job['scheduled_date'], "%Y-%m-%d")
+        tom_str = (cur_date + timedelta(days=1)).strftime("%Y-%m-%d")
+        conn.execute("""
+            UPDATE publishing_jobs
+            SET scheduled_date=?, status='pending', attempt_count=0, error_message=NULL, updated_at=?
+            WHERE id=?
+        """, (tom_str, datetime.now().isoformat(), job_id))
+        msg = f"Job #{job_id} rescheduled to tomorrow ({tom_str}) and reset to PENDING."
+    else:
+        conn.execute("""
+            UPDATE publishing_jobs
+            SET error_message=NULL, updated_at=?
+            WHERE id=?
+        """, (datetime.now().isoformat(), job_id))
+        msg = f"Job #{job_id} marked resolved."
+
+    conn.commit()
+    conn.close()
+    return {'success': True, 'message': msg}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

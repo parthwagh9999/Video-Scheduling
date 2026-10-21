@@ -35,7 +35,8 @@ def discover_start_videos(start_dir=None):
     """Discover all video files in the start-video folder, naturally sorted."""
     d = Path(start_dir) if start_dir else START_VIDEO_DIR
     if not d.exists():
-        raise FileNotFoundError(f"Start video directory not found: {d}")
+        d.mkdir(parents=True, exist_ok=True)
+        return []
     video_exts = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'}
     files = [
         f for f in d.iterdir()
@@ -45,14 +46,19 @@ def discover_start_videos(start_dir=None):
     return files
 
 
-def discover_end_video(end_dir=None):
-    """Find the single end video in the end-video folder."""
+def discover_end_video(end_dir=None, optional=True):
+    """Find the single end video in the end-video folder. Returns None if optional=True and missing."""
     d = Path(end_dir) if end_dir else END_VIDEO_DIR
     if not d.exists():
+        d.mkdir(parents=True, exist_ok=True)
+        if optional:
+            return None
         raise FileNotFoundError(f"End video directory not found: {d}")
     video_exts = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'}
     videos = [f for f in d.iterdir() if f.is_file() and f.suffix.lower() in video_exts]
     if len(videos) == 0:
+        if optional:
+            return None
         raise FileNotFoundError("No video found in end-video folder")
     if len(videos) > 1:
         logger.warning(f"Multiple files in end-video folder, using first: {videos[0].name}")
@@ -393,8 +399,13 @@ def process_all_videos(start_dir=None, end_dir=None, output_dir=None, thumb_dir=
     th_d.mkdir(parents=True, exist_ok=True)
 
     start_files = discover_start_videos(start_d)
-    end_file = discover_end_video(end_d)
-    end_info = probe_video(end_file)
+    end_file = discover_end_video(end_d, optional=True)
+    end_info = probe_video(end_file) if end_file else None
+
+    # If no outro file is provided, proceed without appending outro
+    if not end_file and rule != 'none':
+        logger.info("Notice: No outro video found in End Video/ folder. Processing videos without outro.")
+        rule = 'none'
 
     filenames = [f.name for f in start_files]
     assignments = compute_outro_assignments(filenames, rule, si, manual_selection)

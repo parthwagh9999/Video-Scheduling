@@ -28,6 +28,10 @@ previous/
 *.webp
 *.gif
 
+# Allow documentation screenshots & repository assets
+!docs/assets/**
+!assets/**
+
 # ==========================================
 # Credentials, Sessions & Browser Profiles
 # ==========================================
@@ -46,6 +50,7 @@ Singleton*
 *.token
 *.env
 *.env.*
+!.env.example
 *.pfx
 *.cert
 credentials.json
@@ -63,6 +68,7 @@ video_scheduler.db
 *.xlsx
 *.xls
 *.csv
+user_settings.json
 
 # ==========================================
 # Logs & Scratch Scripts

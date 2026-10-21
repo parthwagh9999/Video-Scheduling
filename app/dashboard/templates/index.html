@@ -4,126 +4,224 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Multi-platform video scheduling and publishing dashboard for YouTube Shorts, Instagram Reels, and Facebook Reels">
-    <title>Video Scheduling Dashboard</title>
-    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <meta name="author" content="Parth Wagh">
+    <title>Video Scheduling Dashboard — Creator Studio</title>
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=2.2.2">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
 </head>
 <body>
     <div class="app-container">
-        <!-- ═══ SIDEBAR ═══ -->
+        <!-- ═══ SIDEBAR NAVIGATION ═══ -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="sidebar-logo">
                     <div class="logo-icon">🎬</div>
                     <div>
                         <h1>VideoSched</h1>
-                        <div class="version">v1.0 — Multi-Platform</div>
+                        <div class="version">Creator Studio v2.2.8</div>
+                        <div class="creator-credit" style="font-size:0.72rem; color:#818cf8; font-weight:600; margin-top:2px; display:flex; align-items:center; gap:4px;">
+                            <span>✨ Created by Parth Wagh</span>
+                        </div>
                     </div>
                 </div>
             </div>
             <nav class="sidebar-nav">
-                <div class="nav-section-label">Dashboard</div>
-                <div class="nav-item active" data-page="overview" onclick="navigateTo('overview')">
-                    <span class="icon">📊</span> Overview
+                <div class="nav-section-label">Main</div>
+                <div class="nav-item active" data-page="home" onclick="navigateTo('home')">
+                    <span class="icon">🏠</span> Home
                 </div>
                 <div class="nav-item" data-page="library" onclick="navigateTo('library')">
-                    <span class="icon">🎥</span> Video Library
+                    <span class="icon">🎬</span> Content Library
                 </div>
-
-                <div class="nav-section-label">Workflow</div>
-                <div class="nav-item" data-page="excel" onclick="navigateTo('excel')">
-                    <span class="icon">📋</span> Excel Sync
-                </div>
-                <div class="nav-item" data-page="processing" onclick="navigateTo('processing')">
-                    <span class="icon">⚙️</span> Video Processing
-                </div>
-                <div class="nav-item" data-page="thumbnails" onclick="navigateTo('thumbnails')">
-                    <span class="icon">🖼️</span> Thumbnails
-                </div>
-
-                <div class="nav-section-label">Publishing</div>
                 <div class="nav-item" data-page="calendar" onclick="navigateTo('calendar')">
-                    <span class="icon">📅</span> Calendar
+                    <span class="icon">📅</span> Publishing Calendar
                 </div>
                 <div class="nav-item" data-page="queue" onclick="navigateTo('queue')">
                     <span class="icon">📤</span> Publishing Queue
                     <span class="badge" id="queue-badge" style="display:none">0</span>
                 </div>
 
-                <div class="nav-section-label">System</div>
+                <div class="nav-section-label">System & Accounts</div>
+                <div class="nav-item" data-page="connections" onclick="navigateTo('connections')">
+                    <span class="icon">🔗</span> Connections
+                    <span id="connections-nav-dot" style="margin-left:auto; width:8px; height:8px; border-radius:50%; background:var(--success); display:inline-block;"></span>
+                </div>
                 <div class="nav-item" data-page="settings" onclick="navigateTo('settings')">
                     <span class="icon">⚙️</span> Settings
                 </div>
+                <div class="nav-item" data-page="diagnostics" onclick="navigateTo('diagnostics')">
+                    <span class="icon">🩺</span> Auto-Healer & Issues
+                    <span class="badge" id="nav-diagnostics-badge" style="display:none; background:#ef4444; color:#fff; font-size:0.68rem; margin-left:auto;">0</span>
+                </div>
+                <div class="nav-item" data-page="guide" onclick="navigateTo('guide')">
+                    <span class="icon">📖</span> User Guide
+                    <span class="badge" style="background:rgba(99,102,241,0.2); color:#818cf8; font-size:0.68rem; margin-left:auto;">Docs</span>
+                </div>
             </nav>
-            <!-- Scheduler Heartbeat -->
-            <div style="padding: 16px 20px; border-top: 1px solid var(--border-subtle);">
-                <div class="flex items-center gap-2">
-                    <span id="heartbeat-dot" style="width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;"></span>
-                    <span class="text-xs text-muted">Scheduler Active</span>
+            <!-- Engine Status Widget -->
+            <!-- Engine Status Widget & Creator Attribution -->
+            <div style="padding: 14px 20px; border-top: 1px solid var(--border-subtle); margin-top:auto;">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span id="heartbeat-dot" style="width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;"></span>
+                        <span class="text-xs text-muted" id="heartbeat-text">Engine Ready</span>
+                    </div>
+                    <span class="badge text-xs" style="background:var(--bg-glass); color:var(--text-secondary);" id="active-env-badge">Local Mode</span>
+                </div>
+                <div style="margin-top:10px; padding-top:8px; border-top:1px dashed rgba(255,255,255,0.06); font-size:0.72rem; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+                    <span>Created by <strong style="color:var(--text-primary); font-weight:600;">Parth Wagh</strong></span>
+                    <span style="font-size:0.65rem; background:rgba(99,102,241,0.2); color:#a5b4fc; padding:1px 6px; border-radius:10px; font-weight:600;">Author</span>
                 </div>
             </div>
         </aside>
 
         <!-- ═══ MAIN CONTENT ═══ -->
         <main class="main-content">
-            <!-- Toast Container -->
+            <!-- Toast Notifications Container -->
             <div class="toast-container" id="toast-container"></div>
 
-            <!-- ═══ PAGE: OVERVIEW ═══ -->
-            <div class="page" id="page-overview">
-                <div class="page-header">
-                    <h2>📊 Dashboard Overview</h2>
-                    <div class="subtitle">Multi-platform video scheduling at a glance</div>
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <!-- 1. PAGE: HOME (CREATOR MISSION CONTROL)                       -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <div class="page" id="page-home">
+                <div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
+                    <div>
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <h2 style="margin:0;">🏠 Creator Mission Control</h2>
+                            <span class="badge" style="background:linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.2)); color:#c7d2fe; border:1px solid rgba(165,180,252,0.3); font-size:0.72rem; font-weight:600; padding:2px 8px; border-radius:12px;">
+                                Created by Parth Wagh
+                            </span>
+                        </div>
+                        <div class="subtitle">Autonomous multi-platform automated video publishing suite</div>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button class="btn btn-secondary btn-sm" onclick="scanVideos()">🔍 Scan Media</button>
+                        <button id="btn-home-run-pipeline" class="btn btn-primary btn-sm" onclick="runAllPipeline()" style="background:linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899); box-shadow:0 4px 15px rgba(139,92,246,0.35); font-weight:700;">
+                            ⚡ Run Full Pipeline
+                        </button>
+                    </div>
                 </div>
+
                 <div class="page-body">
-                    <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
-                        <h3 style="font-size:1rem;font-weight:600;">Content Status</h3>
-                        <div class="flex items-center gap-2 flex-wrap">
-                            <button id="btn-scan-thumbnails" class="btn btn-secondary btn-sm" onclick="scanThumbnails()">🖼️ Scan Thumbnails</button>
-                            <button id="btn-scan-discover" class="btn btn-secondary btn-sm" onclick="scanVideos()">🔍 Scan & Discover</button>
-                            <button id="btn-run-all-pipeline" class="btn btn-primary btn-sm" onclick="runAllPipeline()" style="background:linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899); box-shadow:0 4px 15px rgba(139,92,246,0.35); font-weight:700;">⚡ Run All Steps (Full Pipeline)</button>
+                    <!-- Onboarding & Prerequisites Health Banner -->
+                    <div id="home-onboarding-banner" class="onboarding-banner" style="display:none;">
+                        <div>
+                            <div style="font-weight:700; font-size:0.95rem; display:flex; align-items:center; gap:8px;" id="onboarding-title">
+                                <span>🚀 Welcome to Video Scheduling</span>
+                            </div>
+                            <div class="text-xs text-muted mt-1" id="onboarding-desc">
+                                Complete first-time setup to connect creator accounts and schedule your videos.
+                            </div>
+                            <div class="flex gap-3 mt-2 flex-wrap" id="onboarding-badges"></div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button class="btn btn-sm btn-primary" onclick="navigateTo('connections')" id="btn-onboarding-action">🔗 Connect Accounts</button>
                         </div>
                     </div>
 
-                    <!-- Live Terminal Output Drawer / Modal -->
+                    <!-- Live Pipeline Terminal Drawer -->
                     <div id="pipeline-terminal-card" class="card mb-4" style="display:none; background:#0d1117; border:1px solid #30363d;">
                         <div class="card-header" style="background:#161b22; display:flex; justify-content:space-between; align-items:center; padding:10px 16px; border-bottom:1px solid #30363d;">
                             <div class="flex items-center gap-2">
                                 <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#ff5f56;"></span>
                                 <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#ffbd2e;"></span>
                                 <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#27c93f;"></span>
-                                <span style="font-family:monospace; font-size:0.85rem; font-weight:600; color:#c9d1d9; margin-left:8px;">💻 Live Execution Terminal</span>
+                                <span style="font-family:monospace; font-size:0.85rem; font-weight:600; color:#c9d1d9; margin-left:8px;">💻 Pipeline Execution Console</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <span id="terminal-step-badge" class="badge" style="background:#238636; color:#fff; font-size:0.75rem; padding:3px 8px; border-radius:4px;">Initializing...</span>
+                                <span id="terminal-step-badge" class="badge" style="background:#238636; color:#fff; font-size:0.75rem; padding:3px 8px; border-radius:4px;">Ready</span>
                                 <button class="btn btn-sm btn-secondary" onclick="closeTerminal()" style="padding:2px 8px; font-size:0.75rem;">✕ Close</button>
                             </div>
                         </div>
-                        <div class="card-body" style="padding:14px; max-height:360px; overflow-y:auto; background:#0d1117;" id="terminal-body">
+                        <div class="card-body" style="padding:14px; max-height:320px; overflow-y:auto; background:#0d1117;" id="terminal-body">
                             <pre id="terminal-output" style="margin:0; font-family:'Fira Code', 'Consolas', monospace; font-size:0.82rem; line-height:1.55; color:#58a6ff; white-space:pre-wrap; word-break:break-all;"></pre>
                         </div>
                     </div>
 
-                    <div class="stats-grid" id="overview-stats">
+                    <!-- Key Publishing Metrics Grid -->
+                    <div class="stats-grid" id="home-stats">
                         <div class="loading-overlay"><span class="spinner"></span> Loading stats...</div>
                     </div>
+                    <!-- Legacy/Cache Compatibility Anchors -->
+                    <div id="overview-stats" style="display:none;"></div>
+                    <div id="platform-stats" style="display:none;"></div>
+                    <div id="auth-status" style="display:none;"></div>
 
-                    <h3 style="font-size:1rem;font-weight:600;margin-bottom:16px;">Platform Status</h3>
-                    <div class="stats-grid" id="platform-stats"></div>
+                    <!-- Two-Column Layout: Upcoming Schedule & Platform Connections -->
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); gap:20px; margin-top:20px;">
+                        <!-- Upcoming Scheduled Posts -->
+                        <div class="card">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="font-size:0.95rem; font-weight:700;">📅 Upcoming Schedule (Next 3 Slots)</h3>
+                                <button class="btn btn-sm btn-secondary" onclick="navigateTo('calendar')">View Calendar →</button>
+                            </div>
+                            <div class="card-body" id="home-upcoming-body">
+                                <div class="loading-overlay"><span class="spinner"></span> Loading schedule...</div>
+                            </div>
+                        </div>
+
+                        <!-- Platform Connections & Health -->
+                        <div class="card">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="font-size:0.95rem; font-weight:700;">🔐 Creator Account Health</h3>
+                                <button class="btn btn-sm btn-secondary" onclick="navigateTo('connections')">Manage Accounts →</button>
+                            </div>
+                            <div class="card-body" id="home-connections-body">
+                                <div class="loading-overlay"><span class="spinner"></span> Checking accounts...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity Feed -->
+                    <div class="card mt-4">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                            <div>
+                                <h3 style="font-size:0.95rem; font-weight:700; display:flex; align-items:center; gap:8px;">
+                                    <span>📜 Recent Publishing Activity</span>
+                                </h3>
+                                <div class="text-xs text-muted" style="margin-top:2px;">Latest published, scheduled, and active queue jobs across YouTube, Instagram, and Facebook</div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button class="btn btn-sm btn-secondary" onclick="loadHome()">🔄 Refresh Feed</button>
+                                <button class="btn btn-sm btn-secondary" onclick="navigateTo('queue')">Open Full Queue →</button>
+                            </div>
+                        </div>
+                        <div class="card-body" id="home-activity-body">
+                            <div class="loading-overlay"><span class="spinner"></span> Loading activity...</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- ═══ PAGE: VIDEO LIBRARY ═══ -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <!-- 2. PAGE: CONTENT LIBRARY                                      -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
             <div class="page" id="page-library" style="display:none">
-                <div class="page-header">
-                    <h2>🎥 Video Library</h2>
-                    <div class="subtitle">All discovered source videos and their metadata</div>
+                <div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
+                    <div>
+                        <h2>🎬 Content Library</h2>
+                        <div class="subtitle">Discovered video files, opening thumbnails, and SEO descriptions</div>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button class="btn btn-secondary btn-sm" onclick="scanThumbnails()">🖼️ Rescan Thumbnails</button>
+                        <button class="btn btn-secondary btn-sm" onclick="scanVideos()">🔍 Refresh Library</button>
+                        <div class="btn-group" id="library-size-selector" style="display:inline-flex; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); overflow:hidden;">
+                            <button class="btn btn-sm" data-grid-size="compact" onclick="setGridSize('compact')" style="padding:4px 8px; font-size:0.75rem;" title="Compact 9:16 previews">Small</button>
+                            <button class="btn btn-sm active" data-grid-size="standard" onclick="setGridSize('standard')" style="padding:4px 8px; font-size:0.75rem;" title="Standard 9:16 previews">Medium</button>
+                            <button class="btn btn-sm" data-grid-size="large" onclick="setGridSize('large')" style="padding:4px 8px; font-size:0.75rem;" title="Large 9:16 previews">Large</button>
+                        </div>
+                        <div class="btn-group" style="display:inline-flex; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); overflow:hidden;">
+                            <button class="btn btn-sm active" id="btn-library-view-grid" onclick="setLibraryView('grid')" style="padding:4px 10px; font-size:0.75rem;">🔲 Grid</button>
+                            <button class="btn btn-sm" id="btn-library-view-table" onclick="setLibraryView('table')" style="padding:4px 10px; font-size:0.75rem;">📋 Table</button>
+                        </div>
+                    </div>
                 </div>
+
                 <div class="page-body">
                     <div class="search-bar">
-                        <input type="text" class="search-input" id="library-search" placeholder="Search videos by filename, title..." oninput="filterLibrary()">
+                        <input type="text" class="search-input" id="library-search" placeholder="Search by video filename or SEO title..." oninput="filterLibrary()">
                         <select class="filter-select" id="library-filter" onchange="filterLibrary()">
-                            <option value="">All Status</option>
+                            <option value="">All Statuses</option>
                             <option value="Pending">Pending</option>
                             <option value="Ready">Ready</option>
                             <option value="Scheduled">Scheduled</option>
@@ -131,143 +229,48 @@
                             <option value="Failed">Failed</option>
                         </select>
                     </div>
-                    <div class="card">
-                        <div class="card-body" style="overflow-x:auto;">
-                            <table class="data-table" id="library-table">
-                                <thead>
-                                    <tr>
-                                        <th>Filename</th>
-                                        <th>Title</th>
-                                        <th>Duration</th>
-                                        <th>Outro</th>
-                                        <th>Thumb</th>
-                                        <th>Status</th>
-                                        <th>Platforms</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="library-tbody">
-                                    <tr><td colspan="7" class="loading-overlay"><span class="spinner"></span> Loading library...</td></tr>
-                                </tbody>
-                            </table>
+
+                    <!-- Library Visual Grid View -->
+                    <div id="library-grid-view">
+                        <div class="video-grid" id="library-grid-container">
+                            <div class="loading-overlay" style="grid-column:1/-1"><span class="spinner"></span> Loading library...</div>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            <!-- ═══ PAGE: EXCEL SYNC ═══ -->
-            <div class="page" id="page-excel" style="display:none">
-                <div class="page-header">
-                    <h2>📋 Excel Synchronization</h2>
-                    <div class="subtitle">Match video files to SEO metadata in the workbook</div>
-                </div>
-                <div class="page-body">
-                    <div class="stats-grid" id="excel-stats"></div>
-                    <div class="flex gap-3 mb-4">
-                        <button class="btn btn-secondary" onclick="previewExcelSync()">👁️ Preview Changes</button>
-                        <button class="btn btn-primary" onclick="runExcelSync()">✅ Sync Workbook</button>
-                    </div>
-                    <div class="card" id="excel-preview-card" style="display:none">
-                        <div class="card-header"><h3>Preview: New Records</h3></div>
-                        <div class="card-body" id="excel-preview-body"></div>
-                    </div>
-                    <div class="card mt-4">
-                        <div class="card-header"><h3>Current Records</h3></div>
-                        <div class="card-body" style="overflow-x:auto;">
-                            <table class="data-table">
-                                <thead>
-                                    <tr><th>Filename</th><th>SEO Title</th><th>Words</th><th>Status</th><th>Sched Date</th><th>URL</th></tr>
-                                </thead>
-                                <tbody id="excel-tbody">
-                                    <tr><td colspan="6" class="loading-overlay"><span class="spinner"></span></td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ═══ PAGE: PROCESSING ═══ -->
-            <div class="page" id="page-processing" style="display:none">
-                <div class="page-header">
-                    <h2>⚙️ Video Processing</h2>
-                    <div class="subtitle">Concatenation with outro and thumbnail extraction</div>
-                </div>
-                <div class="page-body">
-                    <div class="card mb-4">
-                        <div class="card-header"><h3>Processing Rules</h3></div>
-                        <div class="card-body">
-                            <div class="form-row">
-                                <label>Outro Rule</label>
-                                <select class="filter-select" id="outro-rule" style="flex:1">
-                                    <option value="every_second" selected>Every Second Video (default)</option>
-                                    <option value="every">Every Video</option>
-                                    <option value="none">No Outro</option>
-                                    <option value="manual">Manual Selection</option>
-                                </select>
+                    <!-- Library Table View -->
+                    <div id="library-table-view" style="display:none;">
+                        <div class="card">
+                            <div class="card-body" style="overflow-x:auto;">
+                                <table class="data-table" id="library-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Filename</th>
+                                            <th>SEO Title</th>
+                                            <th>Duration</th>
+                                            <th>Outro</th>
+                                            <th>Thumbnail</th>
+                                            <th>Status</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="library-tbody">
+                                        <tr><td colspan="7" class="loading-overlay"><span class="spinner"></span> Loading library...</td></tr>
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
-                    <div class="flex items-center gap-3 mb-4 flex-wrap">
-                        <button id="btn-preview-processing" class="btn btn-secondary" onclick="previewProcessing()">👁️ Preview Sequence</button>
-                        <button id="btn-dry-run-processing" class="btn btn-secondary" onclick="startProcessing(true)">🔄 Dry Run</button>
-                        <button id="btn-start-processing" class="btn btn-primary" onclick="startProcessing(false)">🚀 Start Processing</button>
-                        <span id="processing-status-badge" class="status-pill scheduled" style="display:none; font-size:0.8rem; padding: 6px 14px;"></span>
-                    </div>
-
-                    <!-- Live Processing Progress Card -->
-                    <div id="processing-progress-card" class="card mb-4" style="display:none;">
-                        <div class="card-body">
-                            <div class="flex justify-between items-center mb-2">
-                                <span id="processing-progress-text" class="text-sm font-semibold" style="display:flex;align-items:center;gap:8px;">
-                                    <span class="spinner" style="width:14px;height:14px;"></span>
-                                    <span>Processing videos...</span>
-                                </span>
-                                <span id="processing-progress-percent" class="text-sm font-semibold" style="color:var(--accent-primary);">0%</span>
-                            </div>
-                            <div style="background:var(--bg-tertiary);border-radius:var(--radius-full);height:8px;overflow:hidden;width:100%;">
-                                <div id="processing-progress-bar" style="background:linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));height:100%;width:0%;transition:width 0.3s ease;"></div>
-                            </div>
-                            <div id="processing-progress-filename" class="text-xs text-muted mt-2 truncate"></div>
-                        </div>
-                    </div>
-
-                    <div class="stats-grid" id="processing-stats"></div>
-                    <div class="card">
-                        <div class="card-header"><h3>Processing Sequence</h3></div>
-                        <div class="card-body" style="overflow-x:auto;">
-                            <table class="data-table">
-                                <thead><tr><th>#</th><th>Filename</th><th>Gets Outro</th><th>End Video</th></tr></thead>
-                                <tbody id="processing-tbody">
-                                    <tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:20px;">Click "Preview Sequence" to see the processing plan</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
                 </div>
             </div>
 
-            <!-- ═══ PAGE: THUMBNAILS ═══ -->
-            <div class="page" id="page-thumbnails" style="display:none">
-                <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <h2>🖼️ Thumbnail Management</h2>
-                        <div class="subtitle">Extracted from the opening frame of each start video</div>
-                    </div>
-                    <button class="btn btn-secondary btn-sm" onclick="scanThumbnails()">🖼️ Rescan & Verify Thumbnails</button>
-                </div>
-                <div class="page-body">
-                    <div class="thumb-grid" id="thumb-grid">
-                        <div class="loading-overlay" style="grid-column:1/-1"><span class="spinner"></span> Loading thumbnails...</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ═══ PAGE: CALENDAR ═══ -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <!-- 3. PAGE: PUBLISHING CALENDAR                                  -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
             <div class="page" id="page-calendar" style="display:none">
                 <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                     <div>
                         <h2>📅 Publishing Calendar</h2>
-                        <div class="subtitle">3 daily slots: 08:30, 18:00, 21:00 IST — Click any video slot to edit time or status</div>
+                        <div class="subtitle" id="calendar-subtitle">Configured daily slots — Click any video slot to edit or reschedule</div>
                     </div>
                     <div class="flex items-center gap-2">
                         <select class="filter-select" id="calendar-platform-filter" onchange="loadCalendar()" style="font-size:0.8rem; padding:6px 10px;">
@@ -279,6 +282,7 @@
                         <button class="btn btn-secondary btn-sm" onclick="loadCalendar()">🔄 Refresh</button>
                     </div>
                 </div>
+
                 <div class="page-body">
                     <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
                         <div class="flex gap-3 items-center">
@@ -291,19 +295,21 @@
                             <span style="display:inline-flex; align-items:center; gap:5px;"><span class="slot-status-dot scheduled"></span> Scheduled</span>
                             <span style="display:inline-flex; align-items:center; gap:5px;"><span class="slot-status-dot published"></span> Published</span>
                             <span style="display:inline-flex; align-items:center; gap:5px;"><span class="slot-status-dot failed"></span> Failed</span>
-                            <span class="text-xs" style="color:var(--accent-primary); margin-left:8px;">💡 Click any slot to reschedule</span>
+                            <span class="text-xs" style="color:var(--accent-primary); margin-left:8px;">💡 Click any video slot to reschedule</span>
                         </div>
                     </div>
                     <div class="calendar-grid" id="calendar-grid"></div>
                 </div>
             </div>
 
-            <!-- ═══ PAGE: PUBLISHING QUEUE ═══ -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <!-- 4. PAGE: PUBLISHING QUEUE                                     -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
             <div class="page" id="page-queue" style="display:none">
                 <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                     <div>
                         <h2>📤 Publishing Queue</h2>
-                        <div class="subtitle">Track, select, reschedule, and execute browser automation publishing across all platforms</div>
+                        <div class="subtitle">Batch configure, monitor browser automation, and manage queued publishing jobs</div>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap">
                         <select class="filter-select" id="queue-exec-platform" style="font-size:0.8rem; padding:6px 10px;">
@@ -340,7 +346,7 @@
                     </div>
                 </div>
 
-                <!-- Live Queue Execution Card -->
+                <!-- Live Browser Publishing Execution Card -->
                 <div id="queue-publishing-card" class="card mb-4" style="display:none; background:#0d1117; border:1px solid #30363d;">
                     <div class="card-header" style="background:#161b22; display:flex; justify-content:space-between; align-items:center; padding:10px 16px; border-bottom:1px solid #30363d;">
                         <div class="flex items-center gap-2">
@@ -382,7 +388,7 @@
                         <input type="text" id="queue-search-input" class="search-input" placeholder="Search by video filename..." oninput="filterQueueRows()">
                     </div>
 
-                    <!-- Bulk Actions Toolbar (Visible when rows selected) -->
+                    <!-- Bulk Actions Toolbar -->
                     <div id="queue-bulk-bar" class="bulk-action-bar" style="display:none;">
                         <div class="bulk-bar-left">
                             <span class="bulk-count-badge" id="queue-selected-count">0 Selected</span>
@@ -431,26 +437,1021 @@
                 </div>
             </div>
 
-            <!-- ═══ PAGE: SETTINGS ═══ -->
-            <div class="page" id="page-settings" style="display:none">
-                <div class="page-header">
-                    <h2>⚙️ Settings</h2>
-                    <div class="subtitle">Application configuration</div>
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <!-- 5. PAGE: CONNECTIONS (CREATOR ACCOUNT AUTHENTICATION)          -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <div class="page" id="page-connections" style="display:none">
+                <div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
+                    <div>
+                        <h2>🔗 Account Connections</h2>
+                        <div class="subtitle">Authenticate with YouTube Studio, Instagram, and Facebook using your persistent browser profile</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button class="btn btn-primary btn-sm" onclick="openBrowserLogin()">🔓 Open Browser for Login</button>
+                        <button class="btn btn-secondary btn-sm" onclick="checkAuth()">🔍 Check Auth Status</button>
+                        <button class="btn btn-secondary btn-sm" onclick="closeBrowser()">❌ Close Browser</button>
+                    </div>
                 </div>
+
                 <div class="page-body">
-                    <div class="card">
-                        <div class="card-body" id="settings-body">
-                            <div class="loading-overlay"><span class="spinner"></span></div>
+                    <!-- Platform Cards Grid -->
+                    <div class="connection-grid" id="connections-grid">
+                        <!-- YouTube Studio Card -->
+                        <div class="connection-card">
+                            <div>
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <span style="font-size:1.5rem;">🔴</span>
+                                        <div>
+                                            <h3 style="font-size:1rem; font-weight:700;">YouTube Studio</h3>
+                                            <div class="text-xs text-muted">studio.youtube.com</div>
+                                        </div>
+                                    </div>
+                                    <span id="conn-status-youtube" class="badge" style="background:var(--bg-glass); color:var(--text-muted);">Checking...</span>
+                                </div>
+                                <p class="text-xs text-secondary mt-2">
+                                    Used for automated YouTube Shorts publishing with custom 0.0s frame thumbnails, 500-word SEO descriptions, and exact schedule timestamps.
+                                </p>
+                            </div>
+                            <div class="mt-4 pt-3" style="border-top:1px solid var(--border-subtle);">
+                                <span class="text-xs text-muted">Profile: Local Persistent Storage</span>
+                            </div>
+                        </div>
+
+                        <!-- Instagram Reels Card -->
+                        <div class="connection-card">
+                            <div>
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <span style="font-size:1.5rem;">📸</span>
+                                        <div>
+                                            <h3 style="font-size:1rem; font-weight:700;">Instagram Reels</h3>
+                                            <div class="text-xs text-muted">instagram.com</div>
+                                        </div>
+                                    </div>
+                                    <span id="conn-status-instagram" class="badge" style="background:var(--bg-glass); color:var(--text-muted);">Checking...</span>
+                                </div>
+                                <p class="text-xs text-secondary mt-2">
+                                    Supports direct Reel publishing or synchronized auto-posting through connected Facebook Professional Pages.
+                                </p>
+                            </div>
+                            <div class="mt-4 pt-3" style="border-top:1px solid var(--border-subtle);">
+                                <span class="text-xs text-muted">Auto-Sync via Facebook Enabled</span>
+                            </div>
+                        </div>
+
+                        <!-- Facebook Reels Card -->
+                        <div class="connection-card">
+                            <div>
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <span style="font-size:1.5rem;">🔵</span>
+                                        <div>
+                                            <h3 style="font-size:1rem; font-weight:700;">Facebook Professional</h3>
+                                            <div class="text-xs text-muted">facebook.com/professional_dashboard</div>
+                                        </div>
+                                    </div>
+                                    <span id="conn-status-facebook" class="badge" style="background:var(--bg-glass); color:var(--text-muted);">Checking...</span>
+                                </div>
+                                <p class="text-xs text-secondary mt-2">
+                                    Uses Meta's official Professional Dashboard Bulk Uploader to schedule up to 9 Reels daily with auto-cross-posting to Instagram.
+                                </p>
+                            </div>
+                            <div class="mt-4 pt-3" style="border-top:1px solid var(--border-subtle);">
+                                <span class="text-xs text-muted">Bulk Reel Scheduler Ready</span>
+                            </div>
                         </div>
                     </div>
-                    <div class="card mt-4">
-                        <div class="card-header"><h3>🌐 Browser Authentication</h3></div>
+
+                    <!-- Step-by-Step Login Instructions Card -->
+                    <div class="card mb-4">
+                        <div class="card-header"><h3>📖 How Browser Authentication Works</h3></div>
                         <div class="card-body">
-                            <p class="text-sm text-muted mb-4">Open the browser with persistent profile to sign in to your accounts.</p>
-                            <button class="btn btn-primary" onclick="openBrowserLogin()">🔓 Open Browser for Login</button>
-                            <button class="btn btn-secondary" onclick="checkAuth()" style="margin-left:8px;">🔍 Check Auth Status</button>
-                            <button class="btn btn-secondary" onclick="closeBrowser()" style="margin-left:8px;">❌ Close Browser</button>
-                            <div id="auth-status" class="mt-4"></div>
+                            <ol style="margin-left:20px; line-height:1.8; font-size:0.85rem; color:var(--text-secondary);">
+                                <li>Click <strong>"Open Browser for Login"</strong> above. A dedicated Chrome instance will launch with your persistent automation profile.</li>
+                                <li>Three tabs will open: <strong>YouTube Studio</strong>, <strong>Instagram</strong>, and <strong>Facebook</strong>.</li>
+                                <li>Sign in to your accounts manually in each tab, complete any 2-factor authentication (2FA) or captcha challenges.</li>
+                                <li>Once you are logged in, click <strong>"Close Browser"</strong> or click <strong>"Check Auth Status"</strong>. Your cookies and sessions remain safely stored on your local disk.</li>
+                                <li>You only need to do this once — future scheduled uploads will automatically reuse this authenticated session!</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <!-- Privacy & Security Guarantee -->
+                    <div class="card" style="border-left:4px solid var(--success);">
+                        <div class="card-body">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span style="font-size:1.1rem;">🛡️</span>
+                                <h4 style="font-size:0.9rem; font-weight:700; color:var(--success);">Privacy & Security Guarantee</h4>
+                            </div>
+                            <p class="text-xs text-muted" style="line-height:1.6;">
+                                All cookies, session tokens, and passwords remain 100% on your local machine inside the <code>browser_profile/</code> folder. Nothing is ever sent to external cloud servers or AI APIs.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <!-- 6. PAGE: SETTINGS (APPLICATION PREFERENCES)                   -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <div class="page" id="page-settings" style="display:none">
+                <div class="page-header">
+                    <h2>⚙️ Settings & Configuration</h2>
+                    <div class="subtitle">Manage publishing rules, time slots, and directory paths</div>
+                </div>
+                <div class="page-body">
+                    <!-- Publishing Slots & Timezone Card -->
+                    <div class="card mb-4">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3>⏰ Publishing Time Slots & Timezone</h3>
+                            <span class="badge" style="background:rgba(99,102,241,0.15); color:var(--accent-primary); font-size:0.75rem;">Interactive Workflow</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-row">
+                                <label style="min-width:160px; font-weight:600;">Timezone</label>
+                                <select class="filter-select" id="settings-timezone" style="flex:1; max-width:420px;">
+                                    <option value="Asia/Kolkata">Asia/Kolkata (IST - UTC+5:30)</option>
+                                    <option value="America/New_York">America/New_York (EST/EDT - UTC-5/UTC-4)</option>
+                                    <option value="America/Chicago">America/Chicago (CST/CDT - UTC-6/UTC-5)</option>
+                                    <option value="America/Denver">America/Denver (MST/MDT - UTC-7/UTC-6)</option>
+                                    <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT - UTC-8/UTC-7)</option>
+                                    <option value="Europe/London">Europe/London (GMT/BST - UTC+0/UTC+1)</option>
+                                    <option value="Europe/Paris">Europe/Paris (CET/CEST - UTC+1/UTC+2)</option>
+                                    <option value="Europe/Berlin">Europe/Berlin (CET/CEST - UTC+1/UTC+2)</option>
+                                    <option value="Asia/Dubai">Asia/Dubai (GST - UTC+4)</option>
+                                    <option value="Asia/Singapore">Asia/Singapore (SGT - UTC+8)</option>
+                                    <option value="Asia/Tokyo">Asia/Tokyo (JST - UTC+9)</option>
+                                    <option value="Australia/Sydney">Australia/Sydney (AEST/AEDT - UTC+10/UTC+11)</option>
+                                    <option value="UTC">UTC (Coordinated Universal Time)</option>
+                                </select>
+                            </div>
+
+                            <div class="form-row mt-4" style="align-items:flex-start;">
+                                <label style="min-width:160px; font-weight:600; padding-top:6px;">Daily Publishing Slots</label>
+                                <div style="flex:1;">
+                                    <div id="settings-slots-container" class="flex gap-2 flex-wrap mb-3">
+                                        <div class="text-xs text-muted">Loading slots...</div>
+                                    </div>
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <input type="time" id="new-slot-input" class="search-input" style="max-width:140px; padding:6px 12px;" value="12:00">
+                                        <button type="button" class="btn btn-secondary btn-sm" onclick="addSlotFromInput()">➕ Add Slot</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" onclick="resetSlotsToDefault()" title="Reset to standard 3 daily slots: 08:30, 18:00, 21:00">↺ Reset to Default (3 Slots)</button>
+                                    </div>
+                                    <p class="text-xs text-muted mt-2" style="line-height:1.6;">
+                                        💡 <strong>Smart Re-alignment:</strong> Adding or removing daily slots re-allocates video publishing times evenly. Already published videos are always preserved safely.
+                                    </p>
+
+                                    <!-- Realign Future Scheduled Checkbox Option -->
+                                    <div class="mt-3 p-3" style="background:var(--bg-tertiary); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); max-width:600px;">
+                                        <label class="flex items-center gap-2" style="cursor:pointer; font-size:0.85rem; font-weight:600; color:var(--text-primary); user-select:none;">
+                                            <input type="checkbox" id="settings-realign-future-scheduled" checked style="accent-color:var(--accent-primary); width:16px; height:16px;">
+                                            <span>Realign all upcoming scheduled videos to these slots</span>
+                                        </label>
+                                        <div class="text-xs text-muted mt-1" style="padding-left:24px; line-height:1.5;">
+                                            When enabled, all future scheduled and pending videos will adjust to fit the new slot configuration. Already published posts are never touched.
+                                        </div>
+                                    </div>
+
+                                    <!-- Dedicated Save Slots Button directly inside this card -->
+                                    <div class="mt-4 flex items-center gap-3">
+                                        <button id="btn-save-slots" type="button" class="btn btn-primary" onclick="savePublishingSlots()" style="background:linear-gradient(135deg, #10b981, #059669); font-weight:700; padding:8px 22px; box-shadow:0 4px 15px rgba(16,185,129,0.35);">
+                                            💾 Save Slots & Realign Schedule
+                                        </button>
+                                        <span id="slots-save-indicator" class="text-xs text-muted"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-row mt-4">
+                                <label style="min-width:160px; font-weight:600;">Daily Upload Cap</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="number" id="settings-daily-upload-cap" class="search-input" style="max-width:120px;" min="1" max="50" value="9">
+                                    <span class="text-xs text-muted">videos/day per platform</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Video Processing Rules -->
+                    <div class="card mb-4">
+                        <div class="card-header"><h3>🎬 Video Outro Concatenation</h3></div>
+                        <div class="card-body">
+                            <div class="form-row">
+                                <label style="min-width:160px; font-weight:600;">Outro Rule</label>
+                                <select class="filter-select" id="outro-rule" onchange="handleOutroRuleChange()" style="flex:1; max-width:420px;">
+                                    <option value="every_second" selected>Every Second Video (Alternating)</option>
+                                    <option value="every">Every Video</option>
+                                    <option value="none">No Outro</option>
+                                    <option value="manual">Manual Selection</option>
+                                </select>
+                            </div>
+
+                            <!-- Manual Outro Selection Checklist (Visible when rule == 'manual') -->
+                            <div id="manual-outro-selection-container" class="mt-4 p-3" style="display:none; background:var(--bg-tertiary); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);">
+                                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span style="font-weight:600; font-size:0.88rem; color:var(--text-primary);">🎯 Custom Video Selection for Outro</span>
+                                        <span id="manual-outro-count" class="badge" style="background:rgba(99,102,241,0.18); color:var(--accent-primary); font-size:0.75rem;">0 / 0 selected</span>
+                                    </div>
+                                    <div class="flex gap-2 flex-wrap">
+                                        <button type="button" class="btn btn-secondary btn-sm" onclick="setManualOutroAll(true)" style="padding:2px 8px; font-size:0.75rem;">Select All</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" onclick="setManualOutroAll(false)" style="padding:2px 8px; font-size:0.75rem;">Clear All</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" onclick="setManualOutroPattern('odd')" style="padding:2px 8px; font-size:0.75rem;" title="Select odd-positioned videos (#1, #3, #5...)">Odd (#1, #3...)</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" onclick="setManualOutroPattern('even')" style="padding:2px 8px; font-size:0.75rem;" title="Select even-positioned videos (#2, #4, #6...)">Even (#2, #4...)</button>
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <input type="text" id="manual-outro-search" class="search-input" placeholder="🔍 Filter video filenames..." oninput="renderManualOutroList()" style="width:100%; font-size:0.8rem; padding:6px 10px;">
+                                </div>
+                                <div id="manual-outro-list" style="max-height:220px; overflow-y:auto; border:1px solid var(--border-glass); border-radius:var(--radius-sm); padding:6px; background:var(--bg-glass); display:flex; flex-direction:column; gap:4px;">
+                                    <div class="text-xs text-muted" style="padding:8px; text-align:center;">Loading source videos...</div>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center gap-3 mt-4 flex-wrap">
+                                <button id="btn-preview-processing" class="btn btn-secondary btn-sm" onclick="previewProcessing()">👁️ Preview Sequence</button>
+                                <button id="btn-dry-run-processing" class="btn btn-secondary btn-sm" onclick="startProcessing(true)">🔄 Dry Run</button>
+                                <button id="btn-start-processing" class="btn btn-primary btn-sm" onclick="startProcessing(false)">🚀 Run Processing</button>
+                                <span id="processing-status-badge" class="status-pill scheduled" style="display:none; font-size:0.8rem; padding: 6px 14px;"></span>
+                            </div>
+
+                            <!-- Sequence Preview Table Card -->
+                            <div id="processing-preview-card" class="mt-4" style="display:none; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); background:var(--bg-glass); overflow:hidden;">
+                                <div style="padding:10px 14px; background:var(--bg-tertiary); display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle);">
+                                    <div style="font-weight:600; font-size:0.88rem; color:var(--text-primary);" id="processing-preview-summary">Outro Sequence Preview</div>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('processing-preview-card').style.display='none'" style="padding:2px 8px;">✕ Close Preview</button>
+                                </div>
+                                <div style="max-height:280px; overflow-y:auto;">
+                                    <table class="data-table" style="width:100%; font-size:0.82rem;">
+                                        <thead>
+                                            <tr>
+                                                <th style="width:50px;">#</th>
+                                                <th>Source Video Filename</th>
+                                                <th style="width:130px;">Outro Assigned</th>
+                                                <th>Outro Video</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="processing-tbody">
+                                            <tr><td colspan="4" class="text-xs text-muted" style="text-align:center; padding:16px;">Click "Preview Sequence" to simulate assignments.</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Live Processing Progress -->
+                            <div id="processing-progress-card" class="mt-4" style="display:none;">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span id="processing-progress-text" class="text-sm font-semibold flex items-center gap-2">
+                                        <span class="spinner" style="width:14px;height:14px;"></span>
+                                        <span>Processing videos...</span>
+                                    </span>
+                                    <span id="processing-progress-percent" class="text-sm font-semibold" style="color:var(--accent-primary);">0%</span>
+                                </div>
+                                <div style="background:var(--bg-tertiary);border-radius:var(--radius-full);height:8px;overflow:hidden;width:100%;">
+                                    <div id="processing-progress-bar" style="background:linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));height:100%;width:0%;transition:width 0.3s ease;"></div>
+                                </div>
+                                <div id="processing-progress-filename" class="text-xs text-muted mt-2 truncate"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Excel Synchronization Card -->
+                    <div class="card mb-4">
+                        <div class="card-header"><h3>📋 Excel Metadata Synchronization</h3></div>
+                        <div class="card-body">
+                            <p class="text-xs text-muted mb-3">Bidirectional sync with your video metadata workbook. Automatic timestamped backups are created in <code>backups/</code> before any write.</p>
+                            <div class="flex gap-2">
+                                <button class="btn btn-secondary btn-sm" onclick="previewExcelSync()">👁️ Preview Changes</button>
+                                <button class="btn btn-primary btn-sm" onclick="runExcelSync()">✅ Sync Workbook</button>
+                            </div>
+                            <div id="excel-preview-card" class="mt-3" style="display:none;">
+                                <div class="card-body" id="excel-preview-body" style="background:var(--bg-tertiary); border-radius:var(--radius-sm); padding:10px;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Configurable Directory Paths -->
+                    <div class="card mb-4">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3>📁 Configured Directories & File Paths</h3>
+                            <span class="text-xs text-muted">Editable workspace storage locations</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="flex flex-col gap-3">
+                                <div class="form-row">
+                                    <label style="min-width:180px; font-weight:600;">Start Video Dir</label>
+                                    <input type="text" id="settings-start-video-dir" class="search-input" placeholder="H:\path\to\start video">
+                                </div>
+                                <div class="form-row">
+                                    <label style="min-width:180px; font-weight:600;">End Video Dir (Outro)</label>
+                                    <input type="text" id="settings-end-video-dir" class="search-input" placeholder="H:\path\to\End Video">
+                                </div>
+                                <div class="form-row">
+                                    <label style="min-width:180px; font-weight:600;">Excel Workbook</label>
+                                    <input type="text" id="settings-excel-path" class="search-input" placeholder="H:\path\to\video_metadata.xlsx">
+                                </div>
+                                <div class="form-row">
+                                    <label style="min-width:180px; font-weight:600;">Processed Output</label>
+                                    <input type="text" id="settings-processed-dir" class="search-input" placeholder="H:\path\to\output\processed">
+                                </div>
+                                <div class="form-row">
+                                    <label style="min-width:180px; font-weight:600;">Thumbnails Dir</label>
+                                    <input type="text" id="settings-thumbnail-dir" class="search-input" placeholder="H:\path\to\output\thumbnails">
+                                </div>
+                                <div class="form-row">
+                                    <label style="min-width:180px; font-weight:600;">Browser Profile</label>
+                                    <input type="text" id="settings-browser-profile-dir" class="search-input" placeholder="H:\path\to\browser_profile">
+                                </div>
+                            </div>
+                            <div id="settings-paths-body" style="display:none;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Master Settings Save Actions -->
+                    <div class="card" style="border: 1px solid var(--accent-primary); background:rgba(99,102,241,0.04);">
+                        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+                            <div>
+                                <div style="font-weight:700; font-size:0.95rem; color:var(--text-primary);">Apply & Save All Changes</div>
+                                <div class="text-xs text-muted mt-1">Saves all directory paths, timezone, upload caps, and readjusts pending queue slots.</div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="loadSettings()">↺ Discard & Reload</button>
+                                <button id="btn-save-settings" class="btn btn-primary" onclick="saveSettings()" style="background:linear-gradient(135deg, #10b981, #059669); font-weight:700; padding:9px 22px; box-shadow:0 4px 15px rgba(16,185,129,0.35);">
+                                    💾 Save Settings & Realign Schedule
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Software & Creator Attribution Card -->
+                    <div class="card mb-4 mt-4" style="background:linear-gradient(135deg, rgba(99,102,241,0.06), rgba(168,85,247,0.04)); border:1px solid rgba(99,102,241,0.25);">
+                        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+                            <div class="flex items-center gap-3">
+                                <div style="width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg, #6366f1, #8b5cf6); display:flex; align-items:center; justify-content:center; font-size:1.4rem; box-shadow:0 4px 12px rgba(99,102,241,0.35);">
+                                    🎬
+                                </div>
+                                <div>
+                                    <div style="font-weight:700; font-size:1rem; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
+                                        <span>Video Scheduling — Creator Studio</span>
+                                        <span class="badge" style="background:rgba(99,102,241,0.2); color:#c7d2fe; font-size:0.7rem;">v2.2.8</span>
+                                    </div>
+                                    <div class="text-xs text-muted mt-1">
+                                        Autonomous multi-platform video automation software • <strong>Created by Parth Wagh</strong>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="badge" style="background:rgba(16,185,129,0.15); color:#34d399; font-weight:600; padding:5px 12px; font-size:0.75rem; border:1px solid rgba(52,211,153,0.3);">
+                                    ✨ Lead Developer: Parth Wagh
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <!-- 7. PAGE: AUTO-HEALER, DIAGNOSTICS & ISSUE RESOLVER            -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <div class="page" id="page-diagnostics" style="display:none">
+                <div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
+                    <div>
+                        <h2>🩺 Auto-Healer, Diagnostics & Issue Resolver</h2>
+                        <div class="subtitle">Self-healing automation for unattended scheduling — automatically resolves transient glitches and alerts you only when manual action is needed</div>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button class="btn btn-secondary btn-sm" onclick="verifyStudyReadiness()" title="Run pre-flight test before you leave your PC to study">
+                            🎓 Check "Go to Study" Readiness
+                        </button>
+                        <button class="btn btn-secondary btn-sm" onclick="loadDiagnostics()">
+                            🔄 Refresh Radar
+                        </button>
+                        <button class="btn btn-primary btn-sm" onclick="runAutoHealAll()" style="background:linear-gradient(135deg, #10b981, #059669); font-weight:700; box-shadow:0 4px 15px rgba(16,185,129,0.35);" title="Auto-fix stuck jobs, clean dead browser locks, and re-arm failed videos">
+                            ⚡ Run Auto-Heal & Fix All
+                        </button>
+                    </div>
+                </div>
+
+                <div class="page-body">
+                    <!-- Unattended "Go to Study" Readiness Banner -->
+                    <div id="diagnostics-readiness-banner" class="card mb-4" style="background:linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(99, 102, 241, 0.08)); border:1px solid rgba(16, 185, 129, 0.35); padding:18px 22px; border-radius:var(--radius-md);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+                            <div style="flex:1; min-width:280px;">
+                                <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+                                    <span id="readiness-status-badge" class="badge" style="background:rgba(16, 185, 129, 0.2); color:var(--success); font-weight:700; font-size:0.82rem; padding:4px 10px; border:1px solid rgba(16, 185, 129, 0.4);">
+                                        🟢 UNATTENDED SCHEDULING READY
+                                    </span>
+                                    <span class="text-xs text-muted" id="readiness-summary-text">All automated safety nets active</span>
+                                </div>
+                                <div style="font-size:1.05rem; font-weight:700; color:var(--text-primary); margin-bottom:4px;" id="readiness-headline">
+                                    You can press "Start Uploading & Scheduling" and leave your PC to study with peace of mind.
+                                </div>
+                                <div style="font-size:0.83rem; color:var(--text-secondary); line-height:1.5;" id="readiness-subtext">
+                                    The built-in <strong>In-Flight Auto-Healer</strong> automatically catches and retries transient modal popups, network blips, and floating DOM dropdowns up to 3 times. If a platform daily limit is detected, it safely halts and reschedules pending slots to tomorrow.
+                                </div>
+                            </div>
+                            <div class="flex gap-2 flex-wrap" id="readiness-stat-chips">
+                                <div class="stat-chip" style="background:var(--bg-card); border:1px solid var(--border-subtle); padding:6px 12px; border-radius:var(--radius-sm); font-size:0.78rem;">
+                                    <span class="text-muted">Active Issues:</span> <strong id="chip-active-issues" style="color:var(--success);">0</strong>
+                                </div>
+                                <div class="stat-chip" style="background:var(--bg-card); border:1px solid var(--border-subtle); padding:6px 12px; border-radius:var(--radius-sm); font-size:0.78rem;">
+                                    <span class="text-muted">Today's Cap:</span> <strong id="chip-daily-cap">0/9 used</strong>
+                                </div>
+                                <div class="stat-chip" style="background:var(--bg-card); border:1px solid var(--border-subtle); padding:6px 12px; border-radius:var(--radius-sm); font-size:0.78rem;">
+                                    <span class="text-muted">Auto-Retry Watchdog:</span> <strong style="color:var(--accent-primary);">Active (3x)</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 1: ACTIVE ISSUES & UNRESOLVED ALERTS RADAR -->
+                    <div class="card mb-4" id="diagnostics-issues-section">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3 style="display:flex; align-items:center; gap:8px;">
+                                <span>🚨 Live Active Issues & Resolution Radar</span>
+                                <span class="badge" id="issues-count-badge" style="background:rgba(16,185,129,0.18); color:var(--success); font-size:0.75rem;">0 Issues</span>
+                            </h3>
+                            <button class="btn btn-secondary btn-sm" onclick="runAutoHealAll()" style="font-size:0.75rem;">⚡ Auto-Resolve Fixable</button>
+                        </div>
+                        <div class="card-body" id="diagnostics-issues-container">
+                            <div class="loading-overlay"><span class="spinner"></span> Scanning for active issues and interrupted jobs...</div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 2: 6-POINT PRE-FLIGHT HEALTH RADAR -->
+                    <div class="card mb-4">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3 style="display:flex; align-items:center; gap:8px;">
+                                <span>🛡️ 6-Point Pre-Flight Component Radar</span>
+                            </h3>
+                            <span class="text-xs text-muted">Real-time subsystem health</span>
+                        </div>
+                        <div class="card-body">
+                            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px;" id="diagnostics-radar-grid">
+                                <div class="loading-overlay"><span class="spinner"></span> Checking subsystem vitality...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 3: COMPREHENSIVE KNOWLEDGE MATRIX -->
+                    <div class="card mb-4">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                            <div>
+                                <h3 style="display:flex; align-items:center; gap:8px;">
+                                    <span>📚 Master Matrix: All Known Issues, Causes & Automated Fixes</span>
+                                </h3>
+                                <div class="text-xs text-muted">How the engine automatically resolves each failure mode and what to do if manual intervention is required</div>
+                            </div>
+                            <div class="search-box" style="max-width:260px;">
+                                <input type="text" id="matrix-search-input" class="search-input" placeholder="Search issues (e.g. quota, timeout, login)..." oninput="filterKnowledgeMatrix(this.value)" style="padding:4px 10px; font-size:0.8rem;">
+                            </div>
+                        </div>
+                        <div class="card-body" id="diagnostics-matrix-container">
+                            <!-- Matrix cards loaded dynamically or statically -->
+                        </div>
+                    </div>
+
+                    <!-- SECTION 4: DATABASE INTEGRITY & RAW HEALTH (COLLAPSIBLE) -->
+                    <div class="card mb-4">
+                        <div class="card-header" style="cursor:pointer;" onclick="toggleDiagnosticsRaw()">
+                            <h3 style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+                                <span style="display:flex; align-items:center; gap:8px;">
+                                    <span>🗄️ Database Tables & Low-Level Environment Details</span>
+                                </span>
+                                <span id="diagnostics-raw-toggle-icon" style="font-size:0.8rem; color:var(--text-muted);">▶ Click to Expand</span>
+                            </h3>
+                        </div>
+                        <div class="card-body" id="diagnostics-raw-body" style="display:none;">
+                            <div class="mb-3" id="diagnostics-db-stats">
+                                <div class="loading-overlay"><span class="spinner"></span> Loading database table stats...</div>
+                            </div>
+                            <h4 style="font-size:0.85rem; font-weight:700; color:var(--text-primary); margin-bottom:6px;">Environment Payload (Raw JSON)</h4>
+                            <pre id="diagnostics-health-json" style="font-family:'Fira Code', monospace; font-size:0.75rem; background:var(--bg-glass); padding:12px; border-radius:var(--radius-sm); max-height:240px; overflow-y:auto; color:var(--text-secondary);"></pre>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 5: AUDIT TRAIL OF AUTO-HEALING ACTIONS -->
+                    <div class="card">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3>📜 Auto-Healer & System Audit Trail</h3>
+                            <span class="text-xs text-muted">Persistent event history</span>
+                        </div>
+                        <div class="card-body" id="diagnostics-audit-body" style="max-height:300px; overflow-y:auto;">
+                            <div class="loading-overlay"><span class="spinner"></span> Loading audit logs...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <!-- 8. PAGE: USER GUIDE & KNOWLEDGE BASE                          -->
+            <!-- ═══════════════════════════════════════════════════════════════ -->
+            <div class="page" id="page-guide" style="display:none">
+                <!-- Header Banner -->
+                <div class="guide-header-banner">
+                    <div>
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <h2 style="display:flex; align-items:center; gap:10px; font-size:1.4rem; margin:0;">
+                                <span>📖 Creator Studio User Guide & Knowledge Base</span>
+                            </h2>
+                            <span class="badge" style="background:rgba(99,102,241,0.25); color:#c7d2fe; border:1px solid rgba(165,180,252,0.3); font-size:0.72rem; font-weight:600; padding:2px 8px; border-radius:12px;">
+                                Created by Parth Wagh
+                            </span>
+                        </div>
+                        <div class="subtitle" style="margin-top:4px;">
+                            Complete operational documentation, automation guides, Excel SEO rules, and troubleshooting
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button class="btn btn-secondary btn-sm" onclick="navigateTo('connections')">🔗 Manage Logins</button>
+                        <button class="btn btn-secondary btn-sm" onclick="navigateTo('settings')">⚙️ Configure Slots</button>
+                        <button class="btn btn-primary btn-sm" onclick="window.print()" title="Print or save this guide as PDF" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);">
+                            🖨️ Print / Save PDF
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Filter Search & Categories -->
+                <div class="flex justify-between items-center mb-3 flex-wrap gap-3">
+                    <div class="guide-search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="guide-search-input" placeholder="Search guide topics, Excel columns, CLI commands, or FAQs..." oninput="filterGuideCards(this.value)">
+                    </div>
+                    <div class="text-xs text-muted" id="guide-filter-status">Showing all 9 topics</div>
+                </div>
+
+                <!-- Navigation Category Pills -->
+                <div class="guide-nav-pills" id="guide-category-pills">
+                    <div class="guide-nav-pill active" data-category="all" onclick="filterGuideCategory('all')">✨ All Topics</div>
+                    <div class="guide-nav-pill" data-category="quickstart" onclick="filterGuideCategory('quickstart')">🚀 Quick Start</div>
+                    <div class="guide-nav-pill" data-category="diagnostics" onclick="filterGuideCategory('diagnostics')">🩺 Auto-Healer & Recovery</div>
+                    <div class="guide-nav-pill" data-category="video" onclick="filterGuideCategory('video')">🎬 Video & Outros</div>
+                    <div class="guide-nav-pill" data-category="excel" onclick="filterGuideCategory('excel')">📊 Excel SEO</div>
+                    <div class="guide-nav-pill" data-category="calendar" onclick="filterGuideCategory('calendar')">📅 Calendar & Reschedule</div>
+                    <div class="guide-nav-pill" data-category="publishing" onclick="filterGuideCategory('publishing')">📤 Publishing Queue</div>
+                    <div class="guide-nav-pill" data-category="auth" onclick="filterGuideCategory('auth')">🔗 Browser Auth</div>
+                    <div class="guide-nav-pill" data-category="faq" onclick="filterGuideCategory('faq')">🛠️ FAQs & Recovery</div>
+                    <div class="guide-nav-pill" data-category="cli" onclick="filterGuideCategory('cli')">⌨️ CLI Reference</div>
+                </div>
+
+                <div class="page-body">
+                    <!-- SECTION 1: QUICK START (4-STEP ONBOARDING) -->
+                    <div class="guide-card-section mb-4" data-guide-section="quickstart">
+                        <div class="card">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="display:flex; align-items:center; gap:8px;">
+                                    <span>🚀 Quick Start Guide (4 Steps to Automated Publishing)</span>
+                                </h3>
+                                <span class="badge" style="background:rgba(16,185,129,0.15); color:var(--success);">Getting Started</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="guide-step-grid">
+                                    <div class="guide-step-card">
+                                        <div>
+                                            <div class="guide-step-num">1</div>
+                                            <div class="guide-step-title">Add Videos to Folder</div>
+                                            <div class="guide-step-desc">
+                                                Drop raw vertical MP4 files into <code>start video/</code>. Filenames should be clean Title Case with underscores matching your Excel workbook.
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-secondary btn-sm" onclick="scanVideos()">🔍 Scan Media</button>
+                                    </div>
+                                    <div class="guide-step-card">
+                                        <div>
+                                            <div class="guide-step-num">2</div>
+                                            <div class="guide-step-title">Connect Accounts</div>
+                                            <div class="guide-step-desc">
+                                                Click "Open Browser for Login" to log into YouTube Studio, Instagram, and Facebook once. Your session cookies stay persistently saved.
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-secondary btn-sm" onclick="navigateTo('connections')">🔗 Open Connections</button>
+                                    </div>
+                                    <div class="guide-step-card">
+                                        <div>
+                                            <div class="guide-step-num">3</div>
+                                            <div class="guide-step-title">Run Full Pipeline</div>
+                                            <div class="guide-step-desc">
+                                                One-click prep: concatenates outros, extracts 0.0s thumbnails, syncs 500-word SEO metadata, and builds the 3-slot daily calendar.
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-primary btn-sm" onclick="runAllPipeline()">⚡ Run Pipeline</button>
+                                    </div>
+                                    <div class="guide-step-card">
+                                        <div>
+                                            <div class="guide-step-num">4</div>
+                                            <div class="guide-step-title">Publish via Queue</div>
+                                            <div class="guide-step-desc">
+                                                Select platform and batch limit (Today's 3, 3 Days / 9 Videos, or All). Watch Chrome automatically fill titles, thumbnails, and schedule!
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-secondary btn-sm" onclick="navigateTo('queue')">📤 Go to Queue</button>
+                                    </div>
+                                </div>
+
+                                <div class="guide-callout tip">
+                                    <span style="font-size:1.2rem;">💡</span>
+                                    <div>
+                                        <strong>Pro Tip:</strong> You can watch the native browser in real-time by keeping <strong>"Open Browser Window (Headed)"</strong> checked in the Publishing Queue. It shows you every automated click and text entry.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION: AUTO-HEALER, SELF-RECOVERY & UNATTENDED STUDY MODE -->
+                    <div class="guide-card-section mb-4" data-guide-section="diagnostics">
+                        <div class="card" style="border: 1px solid rgba(99,102,241,0.3); background: linear-gradient(180deg, rgba(99,102,241,0.03), transparent);">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="display:flex; align-items:center; gap:8px;">
+                                    <span>🩺 Auto-Healer, Self-Recovery & Unattended Study Mode</span>
+                                </h3>
+                                <span class="badge" style="background:rgba(99,102,241,0.15); color:var(--accent-primary);">Zero-Intervention System</span>
+                            </div>
+                            <div class="card-body">
+                                <p style="font-size:0.86rem; color:var(--text-secondary); margin-bottom:14px; line-height:1.6;">
+                                    Designed for your unattended daily routine: <strong>Click "Start Automation" in the morning, leave your PC scheduling, and go study without worrying.</strong> When issues arrive, the system automatically resolves transient errors in real time. If an issue requires human attention (like 2FA), it alerts you with a plain-English explanation and 1-click action buttons.
+                                </p>
+
+                                <div class="guide-step-grid" style="margin-bottom:16px;">
+                                    <div class="guide-step-card" style="padding:14px 16px;">
+                                        <div style="font-weight:700; color:var(--text-primary); font-size:0.9rem; margin-bottom:4px;">1. In-Flight Transient Auto-Heal</div>
+                                        <div style="font-size:0.8rem; color:var(--text-secondary); line-height:1.5;">
+                                            If a YouTube modal scrim blocks pointer clicks, a dialog appears, or network times out, the engine clears the scrim (Escape key), waits 10s to stabilize, and retries up to 3 times automatically without failing the video.
+                                        </div>
+                                    </div>
+                                    <div class="guide-step-card" style="padding:14px 16px;">
+                                        <div style="font-weight:700; color:var(--text-primary); font-size:0.9rem; margin-bottom:4px;">2. 1-Click System Healer</div>
+                                        <div style="font-size:0.8rem; color:var(--text-secondary); line-height:1.5;">
+                                            Click <strong>"⚡ Run Auto-Heal & Fix All"</strong> to clear orphaned Chrome <code>SingletonLock</code> files from abrupt crashes, recover stuck <code>uploading</code> jobs back to pending, and check SQLite database integrity.
+                                        </div>
+                                        <button class="btn btn-secondary btn-sm mt-2" onclick="navigateTo('diagnostics')">Open Auto-Healer</button>
+                                    </div>
+                                    <div class="guide-step-card" style="padding:14px 16px;">
+                                        <div style="font-weight:700; color:var(--text-primary); font-size:0.9rem; margin-bottom:4px;">3. Unresolved Issue Radar</div>
+                                        <div style="font-size:0.8rem; color:var(--text-secondary); line-height:1.5;">
+                                            If an issue cannot be auto-resolved (e.g. 2FA verification challenge or account limit), it explains why in plain English and offers 1-click solutions: <strong>[↺ Re-arm & Retry]</strong>, <strong>[📅 Shift Tomorrow]</strong>, or <strong>[🔓 Log In Now]</strong>.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style="background:var(--bg-tertiary); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:14px;">
+                                    <div style="font-weight:700; color:var(--text-primary); margin-bottom:6px; font-size:0.88rem;">💡 Recommended Morning Study Routine</div>
+                                    <ol style="font-size:0.82rem; color:var(--text-secondary); padding-left:18px; line-height:1.6; margin:0;">
+                                        <li>Navigate to <strong>🩺 Auto-Healer & Issues</strong> in the sidebar.</li>
+                                        <li>Click <strong>"🎓 Check Study Readiness"</strong> to verify 100% pre-flight green status across network, browser cookies, quotas, and database.</li>
+                                        <li>Go to <strong>📤 Publishing Queue</strong> and click <strong>"⚡ Start Live Uploading"</strong>.</li>
+                                        <li>Go to study! The watchdog and auto-healer keep processing safely.</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 2: VIDEO PROCESSING & OUTRO RULES -->
+                    <div class="guide-card-section mb-4" data-guide-section="video">
+                        <div class="card">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="display:flex; align-items:center; gap:8px;">
+                                    <span>🎬 Video Ingestion, 0.0s Thumbnails & Outro Concatenation</span>
+                                </h3>
+                                <span class="badge" style="background:rgba(99,102,241,0.15); color:var(--accent-tertiary);">FFmpeg Core</span>
+                            </div>
+                            <div class="card-body">
+                                <p style="font-size:0.86rem; color:var(--text-secondary); margin-bottom:14px;">
+                                    The video engine uses high-performance FFmpeg filter graphs to concatenate vertical MP4 clips with outro calls-to-action and extract crisp opening frame thumbnails.
+                                </p>
+
+                                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:14px; margin-bottom:16px;">
+                                    <div style="background:var(--bg-glass); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:14px;">
+                                        <div style="font-weight:700; color:var(--text-primary); margin-bottom:6px;">🔄 Outro Alternating Rules</div>
+                                        <ul style="font-size:0.82rem; color:var(--text-secondary); padding-left:18px; line-height:1.6;">
+                                            <li><strong>Every Second (Default):</strong> Video 0 has outro, Video 1 has no outro, Video 2 has outro...</li>
+                                            <li><strong>Every Video:</strong> Appends the outro video to all 100% of discovered videos.</li>
+                                            <li><strong>None:</strong> Bypasses concatenation; uploads original start videos directly.</li>
+                                            <li><strong>Manual Selection:</strong> Provides an interactive checklist in <strong>Settings</strong> allowing custom selection per video with a live preview sequence table.</li>
+                                        </ul>
+                                    </div>
+                                    <div style="background:var(--bg-glass); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:14px;">
+                                        <div style="font-weight:700; color:var(--text-primary); margin-bottom:6px;">🖼️ 0.0s Opening Frame Thumbnails</div>
+                                        <p style="font-size:0.82rem; color:var(--text-secondary); line-height:1.5; margin-bottom:8px;">
+                                            Shorts and Reels perform highest when the opening hook frame is cleanly presented as the cover. The engine extracts the exact opening frame (<code>t=0.0s</code>) as high-res JPEG into <code>output/thumbnails/</code>.
+                                        </p>
+                                        <div class="flex gap-2">
+                                            <span class="feature-pill yt">YouTube Shorts Auto-Pick</span>
+                                            <span class="feature-pill ig">Reels Cover Sync</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 3: EXCEL METADATA & SEO RULES -->
+                    <div class="guide-card-section mb-4" data-guide-section="excel">
+                        <div class="card">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="display:flex; align-items:center; gap:8px;">
+                                    <span>📊 Excel Metadata & 500-Word SEO Description Rules</span>
+                                </h3>
+                                <span class="badge" style="background:rgba(245,158,11,0.15); color:var(--warning);">Workbook Integration</span>
+                            </div>
+                            <div class="card-body">
+                                <p style="font-size:0.86rem; color:var(--text-secondary); margin-bottom:14px;">
+                                    The system links directly with your master workbook <code>YouTube_SEO_61_Videos_500_Word_Descriptions_FILENAME_MATCHED.xlsx</code>.
+                                </p>
+                                <div style="overflow-x:auto;">
+                                    <table class="table" style="font-size:0.82rem; width:100%;">
+                                        <thead>
+                                            <tr>
+                                                <th style="width:60px;">Col</th>
+                                                <th>Header Name</th>
+                                                <th>Content & Purpose</th>
+                                                <th>Automated Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td><code>A (1)</code></td>
+                                                <td><strong>Video File Name</strong></td>
+                                                <td>Exact MP4 filename on disk (e.g. <code>Discipline_Creates_The_Life_You_Want.mp4</code>)</td>
+                                                <td>1:1 Key Identifier</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>B (2)</code></td>
+                                                <td><strong>SEO Title</strong></td>
+                                                <td>Catchy, keyword-optimized title for YouTube, Instagram, and Facebook</td>
+                                                <td>Pasted into upload title field</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>C (3)</code></td>
+                                                <td><strong>SEO Description + Hashtags</strong></td>
+                                                <td>500-word comprehensive SEO description with relevant hashtags</td>
+                                                <td>Pasted into YouTube description box</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>E (5)</code></td>
+                                                <td><strong>Status</strong></td>
+                                                <td>Lifecycle indicator: <code>Pending</code>, <code>Scheduled</code>, or <code>Published</code></td>
+                                                <td>Updated automatically by publisher</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>F (6)</code></td>
+                                                <td><strong>Scheduled Date</strong></td>
+                                                <td>Target publishing date (e.g. <code>2026-10-22</code>)</td>
+                                                <td>Picked in platform calendar</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>G (7)</code></td>
+                                                <td><strong>Scheduled Time</strong></td>
+                                                <td>Time slot (e.g. <code>08:30</code>, <code>18:00</code>, <code>21:00</code>) in IST</td>
+                                                <td>Selected in time dropdown</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>H (8)</code></td>
+                                                <td><strong>YouTube URL</strong></td>
+                                                <td>Live watch URL on YouTube (e.g. <code>https://youtu.be/...</code>)</td>
+                                                <td>Recorded upon upload completion</td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>J (10)</code></td>
+                                                <td><strong>Instagram/Facebook Caption</strong></td>
+                                                <td>200-word social caption with viral hashtag cloud</td>
+                                                <td>Pasted into IG / FB caption field</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="guide-callout info">
+                                    <span style="font-size:1.2rem;">🛡️</span>
+                                    <div>
+                                        <strong>Automatic Backup Protection:</strong> Before any write or sync operation occurs, a timestamped snapshot is archived to the <code>backups/</code> folder so you can roll back at any time.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 4: PUBLISHING CALENDAR & SCHEDULE REALIGNMENT -->
+                    <div class="guide-card-section mb-4" data-guide-section="calendar">
+                        <div class="card">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="display:flex; align-items:center; gap:8px;">
+                                    <span>📅 Publishing Calendar & Dynamic Schedule Realignment</span>
+                                </h3>
+                                <span class="badge" style="background:rgba(59,130,246,0.15); color:var(--info);">Smart Scheduler</span>
+                            </div>
+                            <div class="card-body">
+                                <p style="font-size:0.86rem; color:var(--text-secondary); margin-bottom:14px;">
+                                    Short-form video algorithms reward consistent daily posting cadence. The system organizes uploads into 3 optimal Indian Standard Time slots:
+                                </p>
+
+                                <div class="flex gap-3 mb-3 flex-wrap">
+                                    <div style="background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.25); border-radius:var(--radius-sm); padding:10px 16px; flex:1; min-width:180px;">
+                                        <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Morning Kickoff</div>
+                                        <div style="font-size:1.15rem; font-weight:700; color:#818cf8;">🌅 08:30 IST</div>
+                                        <div class="text-xs text-muted mt-1">Reaches morning commuters & early scrollers</div>
+                                    </div>
+                                    <div style="background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.25); border-radius:var(--radius-sm); padding:10px 16px; flex:1; min-width:180px;">
+                                        <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Evening Peak</div>
+                                        <div style="font-size:1.15rem; font-weight:700; color:#fbbf24;">🌆 18:00 IST</div>
+                                        <div class="text-xs text-muted mt-1">Prime evening attention window</div>
+                                    </div>
+                                    <div style="background:rgba(236,72,153,0.1); border:1px solid rgba(236,72,153,0.25); border-radius:var(--radius-sm); padding:10px 16px; flex:1; min-width:180px;">
+                                        <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);">Night Prime</div>
+                                        <div style="font-size:1.15rem; font-weight:700; color:#f472b6;">🌙 21:00 IST</div>
+                                        <div class="text-xs text-muted mt-1">High-engagement leisure browsing</div>
+                                    </div>
+                                </div>
+
+                                <div class="guide-callout tip">
+                                    <span style="font-size:1.2rem;">🔄</span>
+                                    <div>
+                                        <strong>Intelligent Schedule Realignment:</strong> If you add, remove, or change publishing slots in <strong>Settings</strong>, the engine realigns all pending & future scheduled jobs across your new slots while <strong>strictly preserving already published videos</strong>.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 5: PUBLISHING QUEUE & BROWSER AUTOMATION -->
+                    <div class="guide-card-section mb-4" data-guide-section="publishing">
+                        <div class="card">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="display:flex; align-items:center; gap:8px;">
+                                    <span>📤 Publishing Queue & Anti-Bot Native Automation</span>
+                                </h3>
+                                <span class="badge" style="background:rgba(239,68,68,0.15); color:var(--error);">Playwright Engine</span>
+                            </div>
+                            <div class="card-body">
+                                <p style="font-size:0.86rem; color:var(--text-secondary); margin-bottom:14px;">
+                                    The publisher launches Chrome using your persistent profile. It interacts with YouTube Studio, Instagram Reels, and Facebook Professional Dashboard exactly like a human content creator.
+                                </p>
+
+                                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px; margin-bottom:16px;">
+                                    <div style="background:var(--bg-glass); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:14px;">
+                                        <div style="font-weight:700; color:var(--text-primary); margin-bottom:6px;">🛡️ Anti-Bot Safety Measures</div>
+                                        <ul style="font-size:0.82rem; color:var(--text-secondary); padding-left:18px; line-height:1.6;">
+                                            <li>Bypasses <code>navigator.webdriver</code> flags.</li>
+                                            <li>Natural random keystroke pacing (40–120ms).</li>
+                                            <li>Bezier mouse curve movement.</li>
+                                            <li>Configurable rest pauses between video uploads.</li>
+                                        </ul>
+                                    </div>
+                                    <div style="background:var(--bg-glass); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:14px;">
+                                        <div style="font-weight:700; color:var(--text-primary); margin-bottom:6px;">📦 Recommended Batch Limits</div>
+                                        <ul style="font-size:0.82rem; color:var(--text-secondary); padding-left:18px; line-height:1.6;">
+                                            <li><strong>Today's 3 Videos:</strong> Schedules immediate next 24h batch.</li>
+                                            <li><strong>3 Days (9 Videos):</strong> Safe maximum batch recommended per platform session.</li>
+                                            <li><strong>Daily Upload Cap (9/day):</strong> Protects channel account reputation.</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 6: PERSISTENT BROWSER PROFILE & AUTH -->
+                    <div class="guide-card-section mb-4" data-guide-section="auth">
+                        <div class="card">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="display:flex; align-items:center; gap:8px;">
+                                    <span>🔗 Persistent Chrome Profile & One-Time Account Login</span>
+                                </h3>
+                                <span class="badge" style="background:rgba(16,185,129,0.15); color:var(--success);">Session Management</span>
+                            </div>
+                            <div class="card-body">
+                                <p style="font-size:0.86rem; color:var(--text-secondary); margin-bottom:14px;">
+                                    Your login credentials are <strong>never stored in plain text or database</strong>. Instead, Chrome maintains cookies and encrypted sessions directly in the <code>browser_profile/</code> folder.
+                                </p>
+                                <div class="guide-step-grid" style="margin-bottom:12px;">
+                                    <div class="guide-step-card" style="padding:14px 16px;">
+                                        <div style="font-weight:700; color:var(--text-primary); font-size:0.9rem; margin-bottom:4px;">1. Launch Session Browser</div>
+                                        <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:10px;">
+                                            Navigate to <strong>Connections</strong> tab and click <strong>"🌐 Open Browser for Login"</strong>.
+                                        </div>
+                                        <button class="btn btn-secondary btn-sm" onclick="navigateTo('connections')">Open Connections</button>
+                                    </div>
+                                    <div class="guide-step-card" style="padding:14px 16px;">
+                                        <div style="font-weight:700; color:var(--text-primary); font-size:0.9rem; margin-bottom:4px;">2. Log In & Complete 2FA</div>
+                                        <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:10px;">
+                                            Log in to YouTube Studio, Instagram, and Facebook in the opened browser window.
+                                        </div>
+                                        <span class="badge" style="background:rgba(99,102,241,0.15); color:var(--accent-tertiary);">Manual Step</span>
+                                    </div>
+                                    <div class="guide-step-card" style="padding:14px 16px;">
+                                        <div style="font-weight:700; color:var(--text-primary); font-size:0.9rem; margin-bottom:4px;">3. Close & Save</div>
+                                        <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:10px;">
+                                            Click <strong>"✅ Close Browser & Save Session"</strong>. Sessions stay valid for 30–90 days!
+                                        </div>
+                                        <button class="btn btn-secondary btn-sm" onclick="navigateTo('connections')">Verify Auth</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 7: INTERACTIVE FAQS & RECOVERY -->
+                    <div class="guide-card-section mb-4" data-guide-section="faq">
+                        <div class="card">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="display:flex; align-items:center; gap:8px;">
+                                    <span>🛠️ Frequently Asked Questions & Instant Recovery</span>
+                                </h3>
+                                <span class="badge" style="background:rgba(236,72,153,0.15); color:#f472b6;">Troubleshooting</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="guide-accordion-item">
+                                    <div class="guide-accordion-header" onclick="toggleGuideAccordion(this)">
+                                        <span>Q: What should I do if port 8899 or 8000 shows "Port already in use"?</span>
+                                        <span class="guide-accordion-icon">▶</span>
+                                    </div>
+                                    <div class="guide-accordion-body">
+                                        The application launcher (<code>launch_gui.py</code>) automatically detects and terminates orphaned background instances holding port 8899. If needed manually on Windows PowerShell:
+                                        <div class="guide-code-box">
+                                            <code>netstat -ano | findstr :8899
+taskkill /F /PID &lt;PID&gt;</code>
+                                            <button class="btn-copy-code" onclick="copyCodeSnippet(this, 'netstat -ano | findstr :8899\ntaskkill /F /PID <PID>')">Copy</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="guide-accordion-item">
+                                    <div class="guide-accordion-header" onclick="toggleGuideAccordion(this)">
+                                        <span>Q: How do I re-publish a video if I deleted the scheduled draft on YouTube Studio?</span>
+                                        <span class="guide-accordion-icon">▶</span>
+                                    </div>
+                                    <div class="guide-accordion-body">
+                                        Go to the <strong>📅 Publishing Calendar</strong> or <strong>📤 Publishing Queue</strong>, click the video row to open the <strong>Reschedule Modal</strong>, and click the orange button:
+                                        <div style="margin:8px 0; font-weight:600; color:#fbbf24;">↺ Mark Draft Deleted & Set Pending</div>
+                                        This resets the database record and enables the upload engine to schedule it again on the next queue run.
+                                    </div>
+                                </div>
+
+                                <div class="guide-accordion-item">
+                                    <div class="guide-accordion-header" onclick="toggleGuideAccordion(this)">
+                                        <span>Q: How does the YouTube Studio date-picker and time dropdown work?</span>
+                                        <span class="guide-accordion-icon">▶</span>
+                                    </div>
+                                    <div class="guide-accordion-body">
+                                        YouTube Studio's schedule picker uses internal custom Web Components. The automation engine clicks the date trigger, clears text using keyboard backspaces, types the exact date, presses Tab/Escape to dismiss the date dropdown, and selects the matching time slot from the autocomplete list.
+                                    </div>
+                                </div>
+
+                                <div class="guide-accordion-item">
+                                    <div class="guide-accordion-header" onclick="toggleGuideAccordion(this)">
+                                        <span>Q: Where are Excel backups saved?</span>
+                                        <span class="guide-accordion-icon">▶</span>
+                                    </div>
+                                    <div class="guide-accordion-body">
+                                        Every time you click "Sync Workbook" or make changes, an automated timestamped backup is saved in <code>backups/</code> (e.g. <code>Excel_backup_before_sync_20261021_143000.xlsx</code>). Your original metadata is never at risk.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 8: CLI COMMAND REFERENCE -->
+                    <div class="guide-card-section mb-4" data-guide-section="cli">
+                        <div class="card">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3 style="display:flex; align-items:center; gap:8px;">
+                                    <span>⌨️ Command-Line Interface (CLI) Quick Reference</span>
+                                </h3>
+                                <span class="badge" style="background:rgba(99,102,241,0.15); color:var(--accent-tertiary);">Terminal Cheat Sheet</span>
+                            </div>
+                            <div class="card-body">
+                                <p style="font-size:0.84rem; color:var(--text-secondary); margin-bottom:12px;">
+                                    For headless background scripts, scheduled cron jobs, or power users, all features can be controlled from terminal:
+                                </p>
+
+                                <div class="guide-code-box">
+                                    <code># 1. Launch the interactive Web GUI
+python launch_gui.py
+
+# 2. Discover raw video files in start video/
+python run.py scan
+
+# 3. Synchronize Excel metadata workbook with automatic backup
+python run.py sync
+
+# 4. Process videos and concatenate outros
+python run.py process --rule every_second
+
+# 5. Generate optimal publication calendar queue
+python run.py schedule
+
+# 6. Run automated publishing (dry-run mode, 3 videos)
+python run.py publish --limit 3 --dry-run
+
+# 7. Live publish to YouTube Studio (3 videos, headed browser)
+python run.py publish --platform youtube --limit 3 --headed
+
+# 8. Run unit test suite
+pytest tests/ -v</code>
+                                    <button class="btn-copy-code" onclick="copyCodeSnippet(this, 'python launch_gui.py\npython run.py scan\npython run.py sync\npython run.py process --rule every_second\npython run.py schedule\npython run.py publish --limit 3 --dry-run\npytest tests/ -v')">Copy All</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -458,7 +1459,9 @@
         </main>
     </div>
 
-    <!-- ═══ MODAL: RESCHEDULE & STATUS MANAGER ═══ -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- MODAL: RESCHEDULE & STATUS MANAGER                                 -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <div id="modal-reschedule" class="modal-backdrop" style="display:none;">
         <div class="modal" style="max-width:540px;">
             <div class="modal-header">
@@ -466,7 +1469,7 @@
                 <button class="btn btn-sm btn-secondary" onclick="closeRescheduleModal()" style="padding:2px 8px;">✕</button>
             </div>
             <div class="modal-body">
-                <!-- Job info preview (Single Job mode) -->
+                <!-- Single Job Info Card -->
                 <div id="modal-job-info-card" class="card mb-4" style="background:var(--bg-tertiary); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
                     <div class="flex justify-between items-center mb-1">
                         <span id="modal-job-platform-badge" class="platform-badge youtube">YOUTUBE</span>
@@ -474,9 +1477,13 @@
                     </div>
                     <div id="modal-job-filename" style="font-weight:600; font-size:0.88rem; color:var(--text-primary); word-break:break-all;"></div>
                     <div id="modal-job-current-schedule" class="text-xs text-muted mt-1">Current: 2026-10-20 @ 08:30 IST</div>
+                    <div id="modal-published-notice" class="guide-callout info" style="display:none; margin-top:8px; font-size:0.8rem; padding:8px 12px;">
+                        <span>✅</span>
+                        <div><strong>Already Published:</strong> This video is already live on the platform. To re-upload (e.g. if you deleted it on the channel), click the orange <strong>"↺ Mark Draft Deleted & Set Pending"</strong> button below.</div>
+                    </div>
                 </div>
 
-                <!-- Bulk target info (Bulk mode) -->
+                <!-- Bulk Target Info Card -->
                 <div id="modal-bulk-info-card" class="card mb-4" style="display:none; background:var(--bg-tertiary); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
                     <div style="font-weight:600; color:var(--accent-primary);" id="modal-bulk-count-text">Updating 0 selected jobs</div>
                     <div class="text-xs text-muted mt-1">New date and time will be applied to all selected videos.</div>
@@ -509,9 +1516,6 @@
                             <option value="failed">Set to Failed</option>
                             <option value="published">Set to Published</option>
                         </select>
-                        <div class="text-xs text-muted mt-1">
-                            💡 If a video was drafted or not scheduled on the platform, manually delete the draft and choose <strong>Pending</strong> to reschedule cleanly.
-                        </div>
                     </div>
 
                     <div class="settings-group mb-2" id="modal-sync-platforms-group">
@@ -534,6 +1538,24 @@
         </div>
     </div>
 
-    <script src="/static/js/dashboard.js"></script>
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- MODAL: VIDEO DETAILS INSPECTOR                                     -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div id="modal-video-detail" class="modal-backdrop" style="display:none;">
+        <div class="modal" style="max-width:680px;">
+            <div class="modal-header">
+                <h3 id="modal-vdetail-title">🎬 Video Details</h3>
+                <button class="btn btn-sm btn-secondary" onclick="closeVideoDetailModal()" style="padding:2px 8px;">✕</button>
+            </div>
+            <div class="modal-body" id="modal-vdetail-body">
+                <div class="loading-overlay"><span class="spinner"></span> Loading details...</div>
+            </div>
+            <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:8px;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="closeVideoDetailModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/dashboard.js?v=2.2.8"></script>
 </body>
 </html>

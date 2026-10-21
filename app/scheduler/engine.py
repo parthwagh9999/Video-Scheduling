@@ -34,7 +34,8 @@ logger = logging.getLogger(__name__)
 
 def get_timezone():
     """Get the configured timezone object."""
-    return pytz.timezone(TIMEZONE)
+    import config.settings as s
+    return pytz.timezone(s.TIMEZONE)
 
 
 def parse_time_slot(slot_str):
@@ -45,7 +46,8 @@ def parse_time_slot(slot_str):
 
 def get_daily_slots():
     """Return the configured daily publication time slots as time objects."""
-    return [parse_time_slot(s) for s in PUBLISHING_SLOTS]
+    import config.settings as s
+    return [parse_time_slot(str(slot)) for slot in s.PUBLISHING_SLOTS]
 
 
 def get_upload_cap(platform):
@@ -320,3 +322,189 @@ class SchedulerWorker:
             'check_interval': self.check_interval,
             'timestamp': datetime.now().isoformat(),
         }
+
+
+def realign_pending_schedule(
+    new_slots: list = None,
+    new_timezone: str = None,
+    include_future_scheduled: bool = True,
+) -> dict:
+    """
+    Realign publishing jobs, schedule queue, and Excel records to match
+    the new daily publishing slots.
+
+    - include_future_scheduled=True (default): Re-allocates all upcoming videos
+      (both pending and future-scheduled) across the new slots, preserving
+      only already published/uploaded posts or past slots.
+    - include_future_scheduled=False: Only re-allocates pending/unscheduled jobs,
+      leaving all 'scheduled' jobs completely untouched.
+    """
+    import config.settings as s
+    if new_slots:
+        validated = []
+        for slot in new_slots:
+            s_str = str(slot).strip()
+            parts = s_str.split(':')
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                h, m = int(parts[0]), int(parts[1])
+                if 0 <= h <= 23 and 0 <= m <= 59:
+                    validated.append(f"{h:02d}:{m:02d}")
+        if validated:
+            s.PUBLISHING_SLOTS = sorted(list(dict.fromkeys(validated)))
+            s.DAILY_PUBLICATION_COUNT = len(s.PUBLISHING_SLOTS)
+
+    if new_timezone:
+        s.TIMEZONE = str(new_timezone).strip()
+
+    slots = s.PUBLISHING_SLOTS
+    tz = get_timezone()
+    now = datetime.now(tz)
+    today = now.date()
+    current_time_str = now.strftime("%H:%M")
+
+    conn = get_connection(s.DB_PATH)
+    try:
+        with conn:
+            cur = conn.cursor()
+            # 1. Fetch locked videos: any video with already published or uploaded jobs
+            cur.execute("""
+                SELECT DISTINCT source_video_id, scheduled_date, scheduled_time
+                FROM publishing_jobs
+                WHERE status IN ('published', 'uploaded')
+                AND scheduled_date IS NOT NULL
+            """)
+            published_rows = cur.fetchall()
+            locked_video_ids = {row['source_video_id'] for row in published_rows}
+            locked_slots = {(row['scheduled_date'], row['scheduled_time']) for row in published_rows}
+
+            # If not including future scheduled, lock all scheduled videos too
+            if not include_future_scheduled:
+                cur.execute("""
+                    SELECT DISTINCT source_video_id, scheduled_date, scheduled_time
+                    FROM publishing_jobs
+                    WHERE status = 'scheduled'
+                    AND scheduled_date IS NOT NULL
+                """)
+                sched_rows = cur.fetchall()
+                for sr in sched_rows:
+                    locked_video_ids.add(sr['source_video_id'])
+                    locked_slots.add((sr['scheduled_date'], sr['scheduled_time']))
+
+            # 2. Fetch distinct videos eligible to realign
+            if locked_video_ids:
+                placeholders = ','.join('?' for _ in locked_video_ids)
+                query = f"""
+                    SELECT source_video_id, source_filename,
+                           min(scheduled_date) as orig_date,
+                           min(scheduled_time) as orig_time
+                    FROM publishing_jobs
+                    WHERE source_video_id NOT IN ({placeholders})
+                    GROUP BY source_video_id
+                    ORDER BY CASE WHEN min(scheduled_date) IS NULL THEN 1 ELSE 0 END,
+                             min(scheduled_date) ASC,
+                             min(scheduled_time) ASC,
+                             source_video_id ASC
+                """
+                cur.execute(query, list(locked_video_ids))
+            else:
+                cur.execute("""
+                    SELECT source_video_id, source_filename,
+                           min(scheduled_date) as orig_date,
+                           min(scheduled_time) as orig_time
+                    FROM publishing_jobs
+                    GROUP BY source_video_id
+                    ORDER BY CASE WHEN min(scheduled_date) IS NULL THEN 1 ELSE 0 END,
+                             min(scheduled_date) ASC,
+                             min(scheduled_time) ASC,
+                             source_video_id ASC
+                """)
+            eligible_videos = cur.fetchall()
+
+            if not eligible_videos:
+                return {
+                    "realigned_count": 0,
+                    "message": "No eligible videos to realign.",
+                    "slots": slots,
+                    "timezone": s.TIMEZONE,
+                }
+
+            # 3. Find the earliest slot starting from today
+            curr_date = today
+            assigned_slots = set()
+            realigned_count = 0
+
+            for v in eligible_videos:
+                vid = v['source_video_id']
+                vfilename = v['source_filename']
+
+                found = False
+                while not found:
+                    for slot_str in slots:
+                        # If date is today, only allow future slots
+                        if curr_date == today and slot_str <= current_time_str:
+                            continue
+
+                        slot_key = (curr_date.isoformat(), slot_str)
+                        if slot_key not in locked_slots and slot_key not in assigned_slots:
+                            assigned_slots.add(slot_key)
+                            assigned_date_str = curr_date.isoformat()
+                            assigned_time_str = slot_str
+                            found = True
+
+                            # Update all non-published jobs for this video across all platforms
+                            cur.execute("""
+                                UPDATE publishing_jobs
+                                SET scheduled_date = ?, scheduled_time = ?, timezone = ?, updated_at = datetime('now')
+                                WHERE source_video_id = ? AND status NOT IN ('published', 'uploaded')
+                            """, (assigned_date_str, assigned_time_str, s.TIMEZONE, vid))
+
+                            # Update excel_records for this video
+                            cur.execute("""
+                                UPDATE excel_records
+                                SET scheduled_date = ?, scheduled_time = ?, updated_at = datetime('now')
+                                WHERE (source_video_id = ? OR filename = ?)
+                                AND status NOT IN ('Published')
+                            """, (assigned_date_str, assigned_time_str, vid, vfilename))
+
+                            # Clean old queue records for this video's non-published jobs
+                            cur.execute("""
+                                DELETE FROM schedule_queue
+                                WHERE source_video_id = ?
+                                AND publishing_job_id IN (
+                                    SELECT id FROM publishing_jobs
+                                    WHERE source_video_id = ? AND status NOT IN ('published', 'uploaded')
+                                )
+                            """, (vid, vid))
+
+                            # Re-insert queue entries for each non-published job of this video
+                            cur.execute("""
+                                SELECT id, platform, status FROM publishing_jobs
+                                WHERE source_video_id = ? AND status NOT IN ('published', 'uploaded')
+                            """, (vid,))
+                            p_jobs = cur.fetchall()
+                            for pjob in p_jobs:
+                                q_status = 'scheduled' if pjob['status'] == 'scheduled' else 'queued'
+                                cur.execute("""
+                                    INSERT OR REPLACE INTO schedule_queue
+                                    (source_video_id, source_filename, platform, publication_date, publication_time, slot_index, status, publishing_job_id)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                """, (vid, vfilename, pjob['platform'], assigned_date_str, assigned_time_str, slots.index(slot_str), q_status, pjob['id']))
+
+                            realigned_count += 1
+                            break
+
+                    if not found:
+                        curr_date += timedelta(days=1)
+
+            scope_text = "all upcoming and pending" if include_future_scheduled else "pending"
+            log_audit(conn, "schedule", "realign_schedule", f"Realigned {realigned_count} videos across slots: {slots} (scope={scope_text})")
+
+            return {
+                "realigned_count": realigned_count,
+                "message": f"Successfully realigned {realigned_count} video(s) across {len(slots)} daily slot(s). Already published videos were preserved safely.",
+                "slots": slots,
+                "timezone": s.TIMEZONE,
+            }
+    finally:
+        conn.close()
+

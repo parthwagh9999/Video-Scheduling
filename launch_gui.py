@@ -81,7 +81,8 @@ def main():
     init_db()
     url = f"http://{DASHBOARD_HOST}:{DASHBOARD_PORT}"
     print("\n" + "=" * 64)
-    print("  🎬 Video Scheduling Automation — Web GUI")
+    print("  🎬 Video Scheduling Automation — Creator Studio")
+    print("  Created by: Parth Wagh")
     print(f"  URL: {url}")
     print(f"  Database: {DB_PATH}")
     print("=" * 64 + "\n")

@@ -53,9 +53,31 @@ def create_backup(workbook_path=None):
     return backup_path
 
 
-def load_workbook_safe(workbook_path=None):
-    """Load workbook with error handling for locked files."""
+def ensure_starter_workbook_if_missing(workbook_path=None):
+    """If no Excel file exists, generate a clean starter template with standard schema."""
     wb_path = Path(workbook_path) if workbook_path else EXCEL_PATH
+    if not wb_path.exists():
+        wb_path.parent.mkdir(parents=True, exist_ok=True)
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = EXCEL_SHEET_NAME
+        for col_idx, col_name in enumerate(EXCEL_COLUMNS, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=col_name)
+            cell.font = openpyxl.styles.Font(bold=True)
+        # Extra columns for Reels SEO caption and word count
+        ws.cell(row=1, column=10, value="Instagram / Facebook Caption").font = openpyxl.styles.Font(bold=True)
+        ws.cell(row=1, column=11, value="Caption Word Count").font = openpyxl.styles.Font(bold=True)
+        wb.save(str(wb_path))
+        wb.close()
+        logger.info(f"Created starter Excel workbook template at: {wb_path}")
+    return wb_path
+
+
+def load_workbook_safe(workbook_path=None):
+    """Load workbook with error handling for locked files, creating starter template if missing."""
+    wb_path = Path(workbook_path) if workbook_path else EXCEL_PATH
+    if not wb_path.exists():
+        ensure_starter_workbook_if_missing(wb_path)
     try:
         wb = openpyxl.load_workbook(str(wb_path))
         return wb
@@ -65,11 +87,11 @@ def load_workbook_safe(workbook_path=None):
             "Please close it and try again."
         )
     except Exception as e:
-        raise RuntimeError(f"Failed to open workbook: {e}")
+        raise RuntimeError(f"Failed to open workbook {wb_path}: {e}")
 
 
 def validate_workbook_structure(wb, sheet_name=None):
-    """Validate that the workbook has the expected structure."""
+    """Validate that the workbook has the expected structure with resilient header matching."""
     sheet = sheet_name or EXCEL_SHEET_NAME
     if sheet not in wb.sheetnames:
         return {
@@ -83,7 +105,10 @@ def validate_workbook_structure(wb, sheet_name=None):
     missing = []
     for i, expected in enumerate(EXCEL_COLUMNS):
         actual = actual_headers[i] if i < len(actual_headers) else None
-        if actual != expected:
+        # Flexible comparison: strip whitespace and case-insensitive check
+        exp_clean = str(expected).strip().lower()
+        act_clean = str(actual).strip().lower() if actual is not None else ""
+        if act_clean != exp_clean and exp_clean not in act_clean:
             missing.append(f"Column {i+1}: expected '{expected}', got '{actual}'")
 
     return {

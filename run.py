@@ -43,7 +43,8 @@ from app.database.models import init_db
 def cmd_dashboard(args):
     """Start the FastAPI Dashboard server."""
     print(f"\n========================================================")
-    print(f"  🎬 Video Scheduling Dashboard Launching")
+    print(f"  🎬 Video Scheduling Automation — Creator Studio")
+    print(f"  Created by: Parth Wagh")
     print(f"  URL: http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
     print(f"  Database: {DB_PATH}")
     print(f"========================================================\n")

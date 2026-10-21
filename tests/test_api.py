@@ -17,6 +17,8 @@ def test_home_page_returns_html(client):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Video Scheduling Dashboard" in response.text
+    assert 'data-page="guide"' in response.text
+    assert 'id="page-guide"' in response.text
 
 
 def test_api_overview(client):
@@ -33,9 +35,9 @@ def test_api_settings(client):
     assert response.status_code == 200
     data = response.json()
     assert "timezone" in data
-    assert data["timezone"] == "Asia/Kolkata"
     assert "publishing_slots" in data
-    assert data["publishing_slots"] == ["08:30", "18:00", "21:00"]
+    assert isinstance(data["publishing_slots"], list)
+    assert len(data["publishing_slots"]) >= 1
 
 
 def test_api_processing_status(client):
@@ -120,6 +122,128 @@ def test_api_reschedule_job(client):
     assert data["scheduled_date"] == "2026-10-20"
     assert data["scheduled_time"] == "08:30"
 
+def test_api_system_health(client):
+    response = client.get("/api/system/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert "status" in data
+    assert "python" in data
+    assert "ffmpeg" in data
+    assert "storage" in data
+    assert "auth" in data
+    assert "publishing" in data
+    assert data["python"]["ok"] is True
+
+
+def test_api_upcoming_schedule(client):
+    response = client.get("/api/upcoming-schedule")
+    assert response.status_code == 200
+    data = response.json()
+    assert "upcoming" in data
+    assert isinstance(data["upcoming"], list)
+
+
+def test_api_recent_activity(client):
+    response = client.get("/api/recent-activity")
+    assert response.status_code == 200
+    data = response.json()
+    assert "recent_jobs" in data
+    assert "audit_events" in data
+    assert isinstance(data["recent_jobs"], list)
+    assert isinstance(data["audit_events"], list)
+
+
+def test_api_scheduler_heartbeat(client):
+    response = client.get("/api/scheduler/heartbeat")
+    assert response.status_code == 200
+    data = response.json()
+    assert "running" in data
+    assert "timestamp" in data
+
+
+def test_api_queue_jobs_endpoint(client):
+    response = client.get("/api/queue/jobs")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_api_save_settings_and_realign(client):
+    # Test GET settings
+    res = client.get("/api/settings")
+    assert res.status_code == 200
+    current = res.json()
+    assert "publishing_slots" in current
+    orig_slots = current.get("publishing_slots", ["08:30", "18:00", "21:00"])
+    orig_tz = current.get("timezone", "Asia/Kolkata")
+
+    try:
+        # Test POST settings with a new slot added
+        payload = {
+            "timezone": "Asia/Kolkata",
+            "publishing_slots": ["08:30", "14:00", "18:00", "21:00"],
+            "daily_upload_cap": 9,
+            "realign_schedule": True,
+            "include_future_scheduled": True,
+        }
+        post_res = client.post("/api/settings", json=payload)
+        assert post_res.status_code == 200
+        data = post_res.json()
+        assert data["success"] is True
+        assert "realign" in data
+        assert "14:00" in data["settings"]["publishing_slots"]
+    finally:
+        # Guarantee restoration of original slots so tests leave working tree clean
+        restore_res = client.post("/api/settings", json={
+            "timezone": orig_tz,
+            "publishing_slots": orig_slots,
+            "daily_upload_cap": 9,
+            "realign_schedule": True,
+            "include_future_scheduled": True,
+        })
+        assert restore_res.status_code == 200
+
+
+def test_api_processing_preview_manual(client):
+    """Test preview endpoint with manual outro selection."""
+    res = client.get("/api/processing/preview?outro_rule=manual&start_index=0&manual_selection=test1.mp4,test2.mp4")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["outro_rule"] == "manual"
+    assert "sequence" in data
+    assert "total_videos" in data
+
+
+def test_api_diagnostics_audit_health(client):
+    """Test the Auto-Healer diagnostics audit-health endpoint."""
+    res = client.get("/api/diagnostics/audit-health")
+    assert res.status_code == 200
+    data = res.json()
+    assert "status" in data
+    assert "unattended_ready" in data
+    assert "active_issues" in data
+    assert "quota_status" in data
+    assert "auth" in data
+    assert "db_counts" in data
+
+
+def test_api_diagnostics_auto_heal_all(client):
+    """Test the 5-point automated self-healing execution endpoint."""
+    res = client.post("/api/diagnostics/auto-heal-all")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert "resolved_count" in data
+    assert "actions_taken" in data
+    assert isinstance(data["actions_taken"], list)
+
+
+def test_api_diagnostics_resolve_job(client):
+    """Test 1-click issue resolver for a job."""
+    res = client.post("/api/diagnostics/resolve-job", json={"job_id": 1, "action": "re-arm"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert "message" in data
 
 
 
