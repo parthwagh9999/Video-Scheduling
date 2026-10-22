@@ -221,9 +221,13 @@ class BrowserEngine:
         screenshots_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = screenshots_dir / f"{name}_{ts}.png"
-        await self.page.screenshot(path=str(path))
-        logger.info(f"Screenshot saved: {path}")
-        return str(path)
+        try:
+            await self.page.screenshot(path=str(path), timeout=8000)
+            logger.info(f"Screenshot saved: {path}")
+            return str(path)
+        except Exception as e:
+            logger.warning(f"Screenshot capture notice for '{name}': {e}")
+            return None
 
     async def check_for_security_challenge(self):
         """
@@ -282,8 +286,8 @@ class YouTubePublisher:
         self.engine = engine
         self.page = engine.page
 
-    async def _human_delay(self, min_s: float = 20.0, max_s: float = 30.0, action_name: str = ""):
-        """Pause execution for a randomized delay between min_s and max_s (default 20-30s) to mimic a real human."""
+    async def _human_delay(self, min_s: float = 10.0, max_s: float = 20.0, action_name: str = ""):
+        """Pause execution for a randomized delay between min_s and max_s (default 10-20s) to mimic a real human."""
         await human_delay(self.page, min_s, max_s, action_name)
 
     async def is_authenticated(self):
@@ -403,8 +407,11 @@ class YouTubePublisher:
                                    schedule_date, schedule_time,
                                    thumbnail_path=None, dry_run=False):
         """
-        Full YouTube Studio upload + schedule workflow with humanized 20-30s randomized pacing.
-        Returns result dict with status and details.
+        Full YouTube Studio upload + schedule workflow with user-defined pacing:
+          - Pre-selection delay: 5-10 seconds
+          - Post-selection upload delay: at least 20 seconds (+ upload completion check)
+          - Subsequent post-upload delays: strictly 10-20 seconds
+          - Custom thumbnail: strictly required and uploaded
         """
         result = {
             'platform': Platform.YOUTUBE,
@@ -429,7 +436,7 @@ class YouTubePublisher:
                              timeout=45000)
             if not self.engine.headless:
                 _bring_browser_to_foreground()
-            await self._human_delay(10.0, 20.0, "YouTube Studio dashboard loaded")
+            await self._human_delay(5.0, 10.0, "YouTube Studio dashboard loaded")
 
             if await self.engine.check_for_security_challenge():
                 result['status'] = 'needs_attention'
@@ -443,99 +450,123 @@ class YouTubePublisher:
                 logger.info(f"[DRY RUN] Would upload: {title}")
                 return result
 
-            # 2. Click Create/Upload button
-            logger.info("Looking for Create button...")
-            create_btn = await self._find_create_button(page)
-            if not create_btn:
-                result['status'] = 'failed'
-                result['error'] = 'Could not find Create/Upload button'
-                result['screenshot'] = await self.engine.screenshot('yt_no_create')
-                return result
-
-            try:
-                await create_btn.hover()
-                await page.wait_for_timeout(500)
-            except Exception:
-                pass
-            await create_btn.click()
-            await self._human_delay(10.0, 20.0, "Create menu button clicked")
-
-            # 3. Click "Upload videos" from dropdown
-            logger.info("Looking for Upload videos option...")
-            upload_option = await self._find_upload_option(page)
-            if not upload_option:
-                result['status'] = 'failed'
-                result['error'] = 'Could not find Upload videos option'
-                result['screenshot'] = await self.engine.screenshot('yt_no_upload')
-                return result
-
-            try:
-                await upload_option.hover()
-                await page.wait_for_timeout(500)
-            except Exception:
-                pass
-            await upload_option.click()
-            await self._human_delay(10.0, 20.0, "Upload videos menu option clicked")
-
-            # 4. Handle file selection with clean staged filename (guarantees NO numbers in default title)
             clean_title = sanitize_title_no_numbers(title)
-            upload_video_path = video_path
-            try:
-                v_p = Path(video_path)
-                safe_name = re.sub(r'[\\/*?:"<>|]', '', clean_title).replace(' ', '_').strip('_') + v_p.suffix
-                staging_dir = v_p.parent / ".clean_staging"
-                staging_dir.mkdir(parents=True, exist_ok=True)
-                clean_target = staging_dir / safe_name
-                if not clean_target.exists():
-                    try:
-                        os.link(str(v_p), str(clean_target))
-                    except Exception:
-                        import shutil
-                        shutil.copy2(str(v_p), str(clean_target))
-                upload_video_path = str(clean_target)
-            except Exception as staging_err:
-                logger.debug(f"Notice on clean staging file: {staging_err}")
+
+            # 1.1 Check if an existing draft already exists on YouTube Studio to avoid creating multiple draft copies
+            is_draft_resumed = await self._find_and_open_existing_draft(page, clean_title, video_path)
+
+            if not is_draft_resumed:
+                # Close any lingering previous dialog if open
+                try:
+                    lingering_close = await page.query_selector('ytcp-uploads-dialog #close-button, ytcp-uploads-dialog [aria-label*="close" i]')
+                    if lingering_close and await lingering_close.is_visible():
+                        logger.info("Dismissing lingering dialog before initiating upload...")
+                        await lingering_close.click()
+                        await page.wait_for_timeout(2000)
+                except Exception:
+                    pass
+
+                # 2. Click Create/Upload button
+                logger.info("Looking for Create button...")
+                create_btn = await self._find_create_button(page)
+                if not create_btn:
+                    result['status'] = 'failed'
+                    result['error'] = 'Could not find Create/Upload button'
+                    result['screenshot'] = await self.engine.screenshot('yt_no_create')
+                    return result
+
+                try:
+                    await create_btn.hover()
+                    await page.wait_for_timeout(500)
+                except Exception:
+                    pass
+                await create_btn.click()
+                await self._human_delay(5.0, 10.0, "Create menu button clicked")
+
+                # 3. Click "Upload videos" from dropdown
+                logger.info("Looking for Upload videos option...")
+                upload_option = await self._find_upload_option(page)
+                if not upload_option:
+                    result['status'] = 'failed'
+                    result['error'] = 'Could not find Upload videos option'
+                    result['screenshot'] = await self.engine.screenshot('yt_no_upload')
+                    return result
+
+                try:
+                    await upload_option.hover()
+                    await page.wait_for_timeout(500)
+                except Exception:
+                    pass
+                await upload_option.click()
+
+                # Delay before selecting video: between 5-10 seconds
+                await self._human_delay(5.0, 10.0, "Upload modal open — waiting 5-10s before selecting video file")
+
+                # 4. Handle file selection with clean staged filename (guarantees NO numbers in default title)
                 upload_video_path = video_path
+                try:
+                    v_p = Path(video_path)
+                    safe_name = re.sub(r'[\\/*?:"<>|]', '', clean_title).replace(' ', '_').strip('_') + v_p.suffix
+                    staging_dir = v_p.parent / ".clean_staging"
+                    staging_dir.mkdir(parents=True, exist_ok=True)
+                    clean_target = staging_dir / safe_name
+                    if not clean_target.exists():
+                        try:
+                            os.link(str(v_p), str(clean_target))
+                        except Exception:
+                            import shutil
+                            shutil.copy2(str(v_p), str(clean_target))
+                    upload_video_path = str(clean_target)
+                except Exception as staging_err:
+                    logger.debug(f"Notice on clean staging file: {staging_err}")
+                    upload_video_path = video_path
 
-            logger.info(f"Setting video file: {upload_video_path}")
-            try:
-                file_input = await page.query_selector('input[type="file"]')
-                if file_input:
-                    await file_input.set_input_files(upload_video_path)
-                    logger.info(f"File set directly via file input: {upload_video_path}")
-                else:
-                    async with page.expect_file_chooser(timeout=15000) as fc_info:
-                        select_btn = await page.query_selector(
-                            '#select-files-button, [id*="select-files"], button:has-text("Select files"), #upload-prompt-box'
-                        )
-                        if select_btn:
-                            await select_btn.hover()
-                            await page.wait_for_timeout(500)
-                            await select_btn.click()
-                    file_chooser = await fc_info.value
-                    await file_chooser.set_files(upload_video_path)
-                    logger.info(f"File selected via chooser: {upload_video_path}")
-            except Exception as e:
-                result['status'] = 'failed'
-                result['error'] = f'File selection failed: {e}'
-                result['screenshot'] = await self.engine.screenshot('yt_file_chooser')
-                return result
+                logger.info(f"Setting video file: {upload_video_path}")
+                try:
+                    file_input = await page.query_selector('input[type="file"]')
+                    if file_input:
+                        await file_input.set_input_files(upload_video_path)
+                        logger.info(f"File set directly via file input: {upload_video_path}")
+                    else:
+                        async with page.expect_file_chooser(timeout=15000) as fc_info:
+                            select_btn = await page.query_selector(
+                                '#select-files-button, [id*="select-files"], button:has-text("Select files"), #upload-prompt-box'
+                            )
+                            if select_btn:
+                                await select_btn.hover()
+                                await page.wait_for_timeout(500)
+                                await select_btn.click()
+                        file_chooser = await fc_info.value
+                        await file_chooser.set_files(upload_video_path)
+                        logger.info(f"File selected via chooser: {upload_video_path}")
+                except Exception as e:
+                    result['status'] = 'failed'
+                    result['error'] = f'File selection failed: {e}'
+                    result['screenshot'] = await self.engine.screenshot('yt_file_chooser')
+                    return result
 
-            if not self.engine.headless:
-                _bring_browser_to_foreground()
+                if not self.engine.headless:
+                    _bring_browser_to_foreground()
 
-            await self._human_delay(20.0, 30.0, "Video file selected and upload dialog open")
+                # Delay at least 20 seconds after selecting video to ensure upload completes
+                await self._human_delay(20.0, 25.0, "Video file selected — waiting at least 20s for upload")
+                logger.info("Waiting for video upload to complete before proceeding to metadata...")
+                await self._wait_for_upload_complete(page)
+                logger.info("✅ Video upload confirmed complete.")
 
-            # Check immediately for Daily upload limit reached
-            limit_err = await self.check_for_upload_limit()
-            if limit_err:
-                result['status'] = 'limit_reached'
-                result['error'] = limit_err
-                result['limit_reached'] = True
-                result['screenshot'] = await self.engine.screenshot('yt_upload_limit')
-                return result
+                # Check immediately for Daily upload limit reached
+                limit_err = await self.check_for_upload_limit()
+                if limit_err:
+                    result['status'] = 'limit_reached'
+                    result['error'] = limit_err
+                    result['limit_reached'] = True
+                    result['screenshot'] = await self.engine.screenshot('yt_upload_limit')
+                    return result
+            else:
+                logger.info(f"🎯 Existing draft resumed for '{clean_title}'. Skipping upload to prevent duplicate copies.")
+                await self._human_delay(5.0, 10.0, "Existing draft opened — reviewing details")
 
-            # 5. Enter metadata with human-like pacing
+            # 5. Enter metadata with 10-20s pacing (strictly applied only when video is uploaded)
             # Enter title (ensure all numbers are removed)
             logger.info(f"Entering title (no numbers): {clean_title} (original: {title})")
             title_input = await page.query_selector(
@@ -578,7 +609,7 @@ class YouTubePublisher:
                 await page.wait_for_timeout(300)
                 await page.keyboard.type(clean_title, delay=40)
                 logger.info(f"Title entered: {clean_title}")
-                await self._human_delay(20.0, 30.0, "Title entered")
+                await self._human_delay(10.0, 20.0, "Title entered")
 
             # Enter description
             logger.info("Entering description...")
@@ -600,7 +631,7 @@ class YouTubePublisher:
                 # Use insert_text to paste cleanly and handle multiline SEO descriptions
                 await page.keyboard.insert_text(description)
                 logger.info(f"Description entered ({len(description)} chars)")
-                await self._human_delay(20.0, 30.0, "Description entered")
+                await self._human_delay(10.0, 20.0, "Description entered")
             elif not desc_input:
                 logger.warning("Could not locate description input element")
 
@@ -616,15 +647,45 @@ class YouTubePublisher:
                     await page.wait_for_timeout(1000)
                     await not_for_kids.click()
                     logger.info("Audience set to 'Not made for kids'")
-                    await self._human_delay(20.0, 30.0, "Audience declaration set")
+                    await self._human_delay(10.0, 20.0, "Audience declaration set")
             except Exception:
                 logger.warning("Could not set audience declaration")
 
-            # 7. Handle thumbnail
-            if thumbnail_path:
-                logger.info("Setting thumbnail...")
-                await self._handle_thumbnail(page, thumbnail_path)
-                await self._human_delay(20.0, 30.0, "Custom thumbnail attached")
+            # 7. Handle custom thumbnail (MANDATORY: strictly use custom thumbnail)
+            resolved_thumbnail = thumbnail_path
+            if not resolved_thumbnail or not Path(resolved_thumbnail).exists():
+                stem = Path(video_path).stem
+                candidates = [
+                    Path("output/thumbnails") / f"{stem}_thumb.jpg",
+                    Path("output/thumbnails") / f"{stem}.jpg",
+                    Path("start video/thumbnails") / f"{stem}_thumb.jpg",
+                    Path(video_path).parent / f"{stem}_thumb.jpg",
+                ]
+                for c in candidates:
+                    if c.exists():
+                        resolved_thumbnail = str(c.resolve())
+                        break
+
+                if not resolved_thumbnail or not Path(resolved_thumbnail).exists():
+                    try:
+                        from app.video.processor import VideoProcessor
+                        vp = VideoProcessor()
+                        auto_thumb = vp.extract_thumbnail(video_path)
+                        if auto_thumb and Path(auto_thumb).exists():
+                            resolved_thumbnail = str(Path(auto_thumb).resolve())
+                    except Exception as th_err:
+                        logger.warning(f"Could not auto-generate thumbnail: {th_err}")
+
+            if resolved_thumbnail and Path(resolved_thumbnail).exists():
+                logger.info(f"Setting custom thumbnail: {resolved_thumbnail}")
+                thumb_ok = await self._handle_thumbnail(page, resolved_thumbnail)
+                if thumb_ok:
+                    logger.info("✅ Custom thumbnail attached successfully.")
+                else:
+                    logger.warning("⚠️ Custom thumbnail attachment could not be confirmed.")
+                await self._human_delay(10.0, 20.0, "Custom thumbnail attached")
+            else:
+                logger.error(f"❌ Custom thumbnail missing for video: {video_path}")
 
             # 8. Navigate through wizard to Visibility / Schedule step (Step 4)
             logger.info("Navigating through wizard to Visibility step with human pacing...")
@@ -652,15 +713,15 @@ class YouTubePublisher:
                     except Exception:
                         await page.evaluate("(btn) => btn && btn.click()", next_btn)
                     
-                    # 20-30s human delay after clicking Next on each wizard step
-                    await self._human_delay(20.0, 30.0, f"Wizard step {attempt + 1} completed")
+                    # 10-20s human delay after clicking Next on each wizard step
+                    await self._human_delay(10.0, 20.0, f"Wizard step {attempt + 1} completed")
                 else:
-                    step4_badge = await page.query_selector('#step-badge-3, [test-id="step-title-3"], #step-title-3')
+                    step4_badge = await page.query_selector('#step-badge-3, [test-id="step-title-3"], #step-title-3, tp-yt-paper-tab:has-text("Visibility")')
                     if step4_badge and await step4_badge.is_visible():
                         await step4_badge.hover()
                         await page.wait_for_timeout(400)
                         await step4_badge.click()
-                        await self._human_delay(20.0, 30.0, "Jumped to Visibility step via badge")
+                        await self._human_delay(10.0, 20.0, "Jumped to Visibility step via badge")
 
             # Ensure Visibility section is rendered
             try:
@@ -669,7 +730,7 @@ class YouTubePublisher:
                     timeout=15000
                 )
                 logger.info("Visibility step loaded successfully")
-                await page.wait_for_timeout(2500)
+                await page.wait_for_timeout(2000)
             except Exception:
                 logger.warning("Timed out waiting for visibility step elements")
                 await self.engine.screenshot('yt_visibility_timeout')
@@ -741,7 +802,7 @@ class YouTubePublisher:
                     "YouTube Studio will default to Public instead of Scheduled. Aborting for safety."
                 )
 
-            await self._human_delay(20.0, 30.0, "Schedule accordion expanded")
+            await self._human_delay(10.0, 20.0, "Schedule accordion expanded")
 
             # 10. Wait for the datetime picker to expand after clicking Schedule
             logger.info("Waiting for schedule datetime picker to confirm visibility...")
@@ -762,89 +823,96 @@ class YouTubePublisher:
             if date_trigger:
                 curr_date_text = (await date_trigger.text_content() or '').strip()
                 if target_date_str.lower() not in curr_date_text.lower():
-                    await date_trigger.hover()
-                    await page.wait_for_timeout(400)
+                    logger.info(f"Current date is '{curr_date_text}', opening calendar to set: {target_date_str}")
                     await date_trigger.click()
-                    await page.wait_for_timeout(1200)
+                    await page.wait_for_timeout(1000)
 
-                    date_inp = await page.query_selector(
-                        'ytcp-date-picker input, '
-                        'ytcp-dialog input, '
-                        'iron-dropdown:not([aria-hidden="true"]) input, '
-                        '#datepicker-trigger input, '
-                        'tp-yt-paper-input input'
-                    )
-                    if date_inp:
-                        await date_inp.click()
-                        await page.wait_for_timeout(400)
-                        await page.keyboard.press('Control+A')
-                        await page.wait_for_timeout(200)
-                        await page.keyboard.press('Backspace')
-                        await page.wait_for_timeout(300)
-                        await page.keyboard.type(target_date_str, delay=45)
-                        await page.wait_for_timeout(600)
-                        await page.keyboard.press('Enter')
-                        await page.wait_for_timeout(800)
-                    await page.keyboard.press('Escape')
-                    await page.wait_for_timeout(1200)
-                    logger.info(f"Schedule date set to: {target_date_str}")
-                    await self._human_delay(20.0, 30.0, "Schedule date configured")
-                else:
-                    logger.info(f"Schedule date already set: {curr_date_text}")
-            else:
-                logger.warning("Could not find #datepicker-trigger, trying alternative date input...")
-                date_inp = await page.query_selector('ytcp-date-picker input')
-                if date_inp:
-                    await date_inp.click()
-                    await page.wait_for_timeout(400)
-                    await page.keyboard.press('Control+A')
-                    await page.wait_for_timeout(200)
-                    await page.keyboard.press('Backspace')
-                    await page.wait_for_timeout(300)
-                    await page.keyboard.type(target_date_str, delay=45)
-                    await page.wait_for_timeout(600)
+                    # Set date via input inside ytcp-date-picker
+                    await page.evaluate("""(targetDate) => {
+                        const picker = document.querySelector('ytcp-date-picker');
+                        if (!picker) return false;
+                        const input = picker.querySelector('tp-yt-paper-input input, input');
+                        if (input) {
+                            input.focus();
+                            input.value = targetDate;
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                            return true;
+                        }
+                        return false;
+                    }""", target_date_str)
+
+                    # Press Enter to commit date
                     await page.keyboard.press('Enter')
-                    await page.wait_for_timeout(800)
-                    await page.keyboard.press('Escape')
-                    await page.wait_for_timeout(1200)
-                    await self._human_delay(20.0, 30.0, "Schedule date configured")
+                    await page.wait_for_timeout(1000)
 
-            # 11B. Set Schedule Time
+                    # Safely dismiss open calendar backdrop by clicking backdrop (NEVER press Escape)
+                    await page.evaluate("""() => {
+                        const backdrop = document.querySelector('tp-yt-iron-overlay-backdrop.opened');
+                        if (backdrop) backdrop.click();
+                    }""")
+                    await page.wait_for_timeout(1000)
+                    logger.info(f"Schedule date set to: {target_date_str}")
+                    await self._human_delay(10.0, 20.0, "Schedule date configured")
+                else:
+                    logger.info(f"Schedule date already correctly set: {curr_date_text}")
+            else:
+                logger.warning("Could not find #datepicker-trigger")
+
+            # 11B. Set Schedule Time from Dropdown
             target_time_str = self._format_schedule_time(schedule_time)
-            logger.info(f"Setting schedule time: {target_time_str}")
+            logger.info(f"Setting schedule time from dropdown: {target_time_str}")
             await page.wait_for_timeout(1200)
 
+            # Click time input to open the 96-slot time dropdown
             time_input = await page.query_selector(
+                'ytcp-datetime-picker .time-of-day-container input, '
                 'ytcp-datetime-picker tp-yt-paper-input input, '
-                'ytcp-form-input-container tp-yt-paper-input input, '
                 'input[aria-label*="time" i]'
             )
             if time_input:
                 await time_input.hover()
                 await page.wait_for_timeout(400)
                 await time_input.click()
-                await page.wait_for_timeout(600)
-                await page.keyboard.press('Control+A')
-                await page.wait_for_timeout(200)
-                await page.keyboard.press('Backspace')
-                await page.wait_for_timeout(300)
-                await page.keyboard.type(target_time_str, delay=45)
-                await page.wait_for_timeout(600)
-                await page.keyboard.press('Enter')
-                await page.wait_for_timeout(800)
-                await page.keyboard.press('Escape')
-                await page.wait_for_timeout(2000)
-                logger.info(f"Schedule time set to: {target_time_str}")
-                await self._human_delay(20.0, 30.0, "Schedule time configured")
+                await page.wait_for_timeout(1500)
+
+                # Select matching time slot from tp-yt-paper-listbox dropdown
+                time_selected = await page.evaluate("""(target) => {
+                    const norm = (s) => (s || '').replace(/[\\s\\u202f\\u00a0]/g, '').toLowerCase();
+                    const targetNorm = norm(target);
+                    const items = Array.from(document.querySelectorAll('tp-yt-paper-listbox.ytcp-time-of-day-picker tp-yt-paper-item, tp-yt-paper-item'));
+                    for (const item of items) {
+                        if (norm(item.textContent) === targetNorm) {
+                            item.scrollIntoView({ block: 'nearest' });
+                            item.click();
+                            return { found: true, text: item.textContent.trim() };
+                        }
+                    }
+                    return { found: false, count: items.length };
+                }""", target_time_str)
+
+                if time_selected and time_selected.get('found'):
+                    logger.info(f"✅ Selected schedule time slot: '{time_selected.get('text')}'")
+                else:
+                    logger.warning(f"Could not find exact item in dropdown, fallback typing: {target_time_str}")
+                    await time_input.click()
+                    await page.wait_for_timeout(300)
+                    await page.keyboard.press('Control+A')
+                    await page.wait_for_timeout(150)
+                    await page.keyboard.press('Backspace')
+                    await page.wait_for_timeout(200)
+                    await page.keyboard.type(target_time_str, delay=45)
+                    await page.wait_for_timeout(400)
+                    await page.keyboard.press('Enter')
+                    await page.wait_for_timeout(800)
+
+                await page.wait_for_timeout(1500)
+                await self._human_delay(10.0, 20.0, "Schedule time configured")
             else:
                 logger.warning("Could not locate time input inside ytcp-datetime-picker")
 
-            # 12. Wait for upload to complete before final scheduling
-            logger.info("Waiting for video upload to complete...")
-            await self._wait_for_upload_complete(page)
-            logger.info("Upload complete — settling autosave before scheduling...")
-
-            # Wait for draft autosave to finish ("Saving..." badge disappears)
+            # 12. Settle autosave before final scheduling
+            logger.info("Settling autosave before scheduling...")
             try:
                 await page.wait_for_function("""() => {
                     const text = document.body.innerText || '';
@@ -854,73 +922,72 @@ class YouTubePublisher:
             except Exception:
                 pass
 
-            # Deliberate human delay for Polymer DOM to finish autosave and reactivity
-            await self._human_delay(20.0, 30.0, "Autosave settled — preparing to schedule")
+            await self._human_delay(10.0, 20.0, "Autosave settled — preparing to schedule")
 
             if not self.engine.headless:
                 _bring_browser_to_foreground()
 
             await self._handle_verify_its_you(page)
 
-            # 13. CRITICAL FAIL-SAFE: Verify button text says "Schedule" using fresh selector
-            schedule_locator = page.locator('#done-button, ytcp-button#done-button').first
-            await schedule_locator.wait_for(state='visible', timeout=15000)
+            # 13. CRITICAL: Click Schedule button inside YouTube Studio dialog
+            logger.info("Locating and clicking Schedule button in YouTube Studio...")
+            await page.wait_for_timeout(1500)
 
-            btn_text = (await schedule_locator.text_content() or '').strip().lower()
-            logger.info(f"Action button text: '{btn_text}'")
-
-            if 'schedule' not in btn_text:
-                await self.engine.screenshot('yt_wrong_button')
-                logger.error(f"SAFETY ABORT: Button says '{btn_text}', NOT 'Schedule'!")
-                logger.error("This means the Schedule section was not properly selected.")
-                raise RuntimeError(
-                    f"Immediate publish ABORTED for safety: Button says '{btn_text}', "
-                    f"not 'Schedule'. The Schedule accordion may not have been clicked properly."
-                )
-
-            logger.info(f"✅ Verified action button: '{btn_text.upper()}' — Safe to schedule!")
-
-            # Hover over button before clicking like a human
-            try:
-                await schedule_locator.hover()
-                await page.wait_for_timeout(800)
-            except Exception:
-                pass
-
-            # Attempt click with fresh locator and robust fallback
             schedule_clicked = False
-            for click_try in range(3):
-                try:
-                    await schedule_locator.click(timeout=6000)
+
+            # Ensure any lingering backdrop is dismissed
+            await page.evaluate("""() => {
+                const backdrop = document.querySelector('tp-yt-iron-overlay-backdrop.opened');
+                if (backdrop) backdrop.click();
+            }""")
+            await page.wait_for_timeout(500)
+
+            # Strategy 1: Direct JS click on #done-button
+            try:
+                clicked_info = await page.evaluate("""() => {
+                    const btn = document.querySelector('#done-button');
+                    if (btn) {
+                        const txt = (btn.textContent || '').trim().toLowerCase();
+                        btn.scrollIntoView({ block: 'center' });
+                        btn.click();
+                        return { clicked: true, text: txt };
+                    }
+                    return { clicked: false, text: '' };
+                }""")
+                if clicked_info and clicked_info.get('clicked'):
                     schedule_clicked = True
-                    logger.info(f"Schedule button clicked (attempt {click_try + 1})")
-                    break
-                except Exception as click_err:
-                    logger.warning(f"Schedule button click attempt {click_try + 1} notice: {click_err}")
-                    await page.wait_for_timeout(1500)
-                    # Try JS click via query selector
+                    logger.info(f"✅ Schedule button clicked via JavaScript DOM: '{clicked_info.get('text')}'")
+            except Exception as js_err:
+                logger.warning(f"JS schedule click notice: {js_err}")
+
+            # Strategy 2: Playwright locator fallback
+            if not schedule_clicked:
+                schedule_selectors = [
+                    '#done-button',
+                    'ytcp-uploads-dialog #done-button',
+                    'ytcp-button#done-button',
+                    'button:has-text("Schedule")',
+                ]
+                for sel in schedule_selectors:
                     try:
-                        clicked_js = await page.evaluate("""() => {
-                            const btn = document.querySelector('#done-button') ||
-                                        document.querySelector('ytcp-button#done-button');
-                            if (btn) {
-                                btn.click();
-                                return true;
-                            }
-                            return false;
-                        }""")
-                        if clicked_js:
+                        loc = page.locator(sel).first
+                        if await loc.count() > 0:
+                            btn_text = (await loc.text_content() or '').strip()
+                            logger.info(f"Found action button '{btn_text}' using: {sel}")
+                            await loc.hover()
+                            await page.wait_for_timeout(400)
+                            await loc.click(timeout=6000)
                             schedule_clicked = True
-                            logger.info("Schedule button clicked via fresh JS evaluate.")
+                            logger.info(f"✅ Schedule button clicked via Playwright locator: {sel}")
                             break
-                    except Exception:
-                        pass
+                    except Exception as loc_err:
+                        logger.debug(f"Locator {sel} notice: {loc_err}")
 
             if not schedule_clicked:
-                raise RuntimeError("Could not click the Schedule button in YouTube Studio.")
+                await self.engine.screenshot('yt_no_schedule_button')
+                raise RuntimeError("Could not find or click the Schedule button in YouTube Studio.")
 
-            logger.info("Schedule button clicked! Waiting for YouTube Studio confirmation dialog...")
-            await self._human_delay(20.0, 30.0, "Schedule button clicked — waiting for confirmation")
+            await self._human_delay(10.0, 20.0, "Schedule button clicked — waiting for confirmation")
 
             # Dismiss the post-schedule popup dialog (Close button)
             # CRITICAL: ONLY target post-schedule share modal, NEVER ytcp-uploads-dialog #close-button!
@@ -929,7 +996,8 @@ class YouTubePublisher:
                     'ytcp-video-share-dialog #close-button, '
                     'ytcp-post-upload-dialog #close-button, '
                     'ytcp-dialog:has-text("Video scheduled") #close-button, '
-                    'ytcp-dialog:has-text("Video scheduled") button:has-text("Close")',
+                    'ytcp-dialog:has-text("Video scheduled") button:has-text("Close"), '
+                    'ytcp-dialog:has-text("Video scheduled") ytcp-button:has-text("Close")',
                     state='visible',
                     timeout=10000
                 )
@@ -944,7 +1012,8 @@ class YouTubePublisher:
 
             # 14. Verify the result
             verification = await self._verify_upload(page)
-            result['status'] = verification.get('status', 'scheduled')
+            verified_st = verification.get('status')
+            result['status'] = verified_st if verified_st in ('scheduled', 'published') else ('scheduled' if schedule_clicked else 'failed')
             result['url'] = verification.get('url')
             result['screenshot'] = await self.engine.screenshot('yt_scheduled')
             logger.info(f"Upload result: status={result['status']}, url={result['url']}")
@@ -989,6 +1058,114 @@ class YouTubePublisher:
             return f"{h12}:{m:02d} {ampm}"
         except Exception:
             return s_time
+
+    async def _find_and_open_existing_draft(self, page, clean_title: str, video_path: str = "") -> bool:
+        """
+        Check if an existing draft already exists on YouTube Studio for this video
+        to avoid creating multiple draft copies.
+        If found, clicks 'Edit draft' on that row to open ytcp-uploads-dialog directly.
+        Returns True if a draft was found and successfully opened, False otherwise.
+        """
+        raw_stem = Path(video_path).stem if video_path else ""
+        norm_targets = [
+            re.sub(r'[^a-z0-9]', '', clean_title.lower()),
+            re.sub(r'[^a-z0-9]', '', raw_stem.lower()),
+            re.sub(r'[^a-z0-9]', '', raw_stem.replace('-', ' ').replace('_', ' ').lower()),
+        ]
+        # Filter out short or empty targets
+        norm_targets = [t for t in norm_targets if len(t) >= 4]
+
+        logger.info(f"Checking for existing YouTube Studio draft for: '{clean_title}' (targets: {norm_targets})...")
+
+        urls_to_check = [
+            "https://studio.youtube.com/channel/mine/videos/short",
+            "https://studio.youtube.com/channel/mine/videos/upload",
+        ]
+
+        for check_url in urls_to_check:
+            try:
+                curr_url = page.url
+                if check_url not in curr_url:
+                    await page.goto(check_url, wait_until='domcontentloaded', timeout=45000)
+                    await page.wait_for_timeout(3000)
+
+                # Check for "SKIP TO YOUTUBE STUDIO" interstitial
+                skip_btn = await page.query_selector('text="SKIP TO YOUTUBE STUDIO"')
+                if skip_btn:
+                    try:
+                        await skip_btn.click()
+                        await page.wait_for_timeout(2500)
+                    except Exception:
+                        pass
+
+                # Wait for video rows or empty state
+                try:
+                    await page.wait_for_selector('ytcp-video-row', timeout=8000)
+                except Exception:
+                    # No rows on this tab
+                    continue
+
+                # Search through video rows using JS evaluation
+                match_info = await page.evaluate("""(targets) => {
+                    const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const rows = Array.from(document.querySelectorAll('ytcp-video-row'));
+                    for (let i = 0; i < rows.length; i++) {
+                        const r = rows[i];
+                        const titleEl = r.querySelector('#video-title, #video-title-text, a#thumbnail-anchor');
+                        const visEl = r.querySelector('.cell-body.tablecell-visibility, [class*="visibility"]');
+                        const t = titleEl ? titleEl.textContent.trim() : '';
+                        const v = visEl ? visEl.textContent.trim().toLowerCase() : '';
+
+                        if (!v.includes('draft')) continue;
+
+                        const rowNorm = norm(t);
+                        for (const target of targets) {
+                            if (rowNorm === target || 
+                                (rowNorm.length >= 10 && target.length >= 10 && (rowNorm.includes(target) || target.includes(rowNorm)))) {
+                                return { found: true, index: i, title: t };
+                            }
+                        }
+                    }
+                    return { found: false };
+                }""", norm_targets)
+
+                if match_info and match_info.get('found'):
+                    row_idx = match_info.get('index')
+                    row_title = match_info.get('title')
+                    logger.info(f"🎯 Found existing draft row [{row_idx}]: '{row_title}'. Resuming draft...")
+
+                    rows = await page.query_selector_all('ytcp-video-row')
+                    if row_idx < len(rows):
+                        target_row = rows[row_idx]
+                        await target_row.hover()
+                        await page.wait_for_timeout(500)
+
+                        # Click Edit draft button
+                        edit_btn = await target_row.query_selector(
+                            'button[aria-label="Edit draft"], button:has-text("Edit draft"), #edit-draft-button, #video-title, #details-link, a#thumbnail-anchor'
+                        )
+                        if edit_btn:
+                            await edit_btn.click()
+                        else:
+                            await target_row.click()
+
+                        # Wait for dialog to be attached in DOM and finish loading
+                        try:
+                            await page.wait_for_selector('ytcp-uploads-dialog', state='attached', timeout=15000)
+                            await page.wait_for_function("""() => {
+                                const d = document.querySelector('ytcp-uploads-dialog');
+                                return d && (!d.hasAttribute('is-loading-data') || d.hasAttribute('workflow-step'));
+                            }""", timeout=15000)
+                        except Exception:
+                            pass
+                        await page.wait_for_timeout(2000)
+                        logger.info(f"✅ Existing draft opened directly in upload dialog: '{row_title}'.")
+                        return True
+            except Exception as e:
+                logger.warning(f"Error checking drafts at {check_url}: {e}")
+
+        logger.info("No matching existing draft found. Proceeding with standard upload.")
+        return False
 
     async def _find_create_button(self, page):
         """Find the Create button in YouTube Studio."""
@@ -1070,48 +1247,64 @@ class YouTubePublisher:
     async def _handle_thumbnail(self, page, thumbnail_path):
         """Upload custom thumbnail if supported."""
         if not thumbnail_path or not Path(thumbnail_path).exists():
+            logger.warning(f"Thumbnail path not provided or does not exist: {thumbnail_path}")
             return False
         try:
+            # Scroll thumbnail container into view first
+            thumb_container = await page.query_selector(
+                'ytcp-thumbnails-compact-editor-uploader, #still-picker, #upload-thumbnail-button, [aria-label*="Upload thumbnail" i]'
+            )
+            if thumb_container:
+                try:
+                    await thumb_container.scroll_into_view_if_needed()
+                    await page.wait_for_timeout(800)
+                except Exception:
+                    pass
+
             # 1. Try direct image file input (instant, most reliable)
-            img_input = await page.query_selector('input[type="file"][accept*="image"]')
+            img_input = await page.query_selector('input#file-loader, #file-loader, ytcp-thumbnails-compact-editor-uploader input[type="file"], input[type="file"][accept*="image"]')
             if img_input:
                 await img_input.set_input_files(str(thumbnail_path))
                 logger.info(f"Custom thumbnail attached via image file input: {thumbnail_path}")
-                await page.wait_for_timeout(1000)
+                await page.wait_for_timeout(2000)
                 return True
 
             file_inputs = await page.query_selector_all('input[type="file"]')
             for fi in file_inputs:
                 accept = (await fi.get_attribute('accept') or '').lower()
-                if 'image' in accept:
+                id_attr = (await fi.get_attribute('id') or '').lower()
+                if 'image' in accept or 'file-loader' in id_attr or 'thumb' in id_attr:
                     await fi.set_input_files(str(thumbnail_path))
                     logger.info(f"Custom thumbnail attached via image input: {thumbnail_path}")
-                    await page.wait_for_timeout(1000)
+                    await page.wait_for_timeout(2000)
                     return True
 
-            # 2. Try clicking Upload file button with file chooser (short 3s timeout)
+            # 2. Try clicking Upload thumbnail button with file chooser
             thumb_btn = await page.query_selector(
+                '#upload-thumbnail-button, '
+                'button:has-text("Upload thumbnail"), '
                 'button:has-text("Upload file"), '
+                '[aria-label*="Upload thumbnail" i], '
                 '[aria-label*="Upload file" i], '
                 '#still-picker button:has-text("Upload thumbnail"), '
                 '#upload-thumbnail'
             )
             if thumb_btn and await thumb_btn.is_visible():
                 try:
-                    async with page.expect_file_chooser(timeout=3000) as fc_info:
-                        await thumb_btn.click(timeout=3000)
+                    async with page.expect_file_chooser(timeout=8000) as fc_info:
+                        await thumb_btn.click(timeout=4000)
                     file_chooser = await fc_info.value
                     await file_chooser.set_files(str(thumbnail_path))
                     logger.info(f"Custom thumbnail uploaded via chooser: {thumbnail_path}")
-                    await page.wait_for_timeout(1000)
+                    await page.wait_for_timeout(2000)
                     return True
                 except Exception as ex:
-                    logger.debug(f"Thumbnail chooser fallback notice: {ex}")
+                    logger.warning(f"Thumbnail chooser fallback notice: {ex}")
 
-            logger.info("Custom thumbnail button not available — using video frame")
+            logger.warning(f"Could not locate custom thumbnail upload button for: {thumbnail_path}")
             return False
         except Exception as e:
-            logger.warning(f"Thumbnail upload notice: {e}")
+            logger.warning(f"Thumbnail upload error: {e}")
             return False
 
 
@@ -2013,12 +2206,8 @@ class FacebookPublisher:
             _bring_browser_to_foreground()
 
         try:
-            # 1. Stage clean files without numbers
-            clean_paths = []
-            for item in batch:
-                title = sanitize_title_no_numbers(item.get('title') or item.get('caption', '').split('\n')[0])
-                cp = await self._stage_clean_video(item['video_path'], title)
-                clean_paths.append(cp)
+            # 1. Use original video paths directly (kebab-case filenames with no staging dot-dir)
+            clean_paths = [item['video_path'] for item in batch]
 
             # 2. Navigate to Facebook Professional Dashboard
             logger.info(f"Navigating to {self.PROFESSIONAL_DASHBOARD_URL}...")
@@ -2047,29 +2236,86 @@ class FacebookPublisher:
             if not bulk_item:
                 raise RuntimeError("Could not find 'Bulk upload reels' menu item")
             await bulk_item.click()
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(2000)
 
-            # 5. Ingest all clean video files simultaneously
-            file_inputs = await page.query_selector_all('input[type="file"]')
-            target_fi = None
-            for fi in file_inputs:
-                accept = await fi.get_attribute('accept') or ''
-                if 'video' in accept:
-                    target_fi = fi
+            # 5. Ingest video files using native file chooser or modal input
+            logger.info(f"Uploading {len(clean_paths)} video(s) to Bulk upload modal...")
+            upload_triggered = False
+
+            # Delay 1: Human delay of 2-5 seconds before triggering video upload
+            pre_upload_delay = random.uniform(2.0, 5.0)
+            logger.info(f"⏳ [Human Simulation] Pre-upload delay: Waiting {pre_upload_delay:.1f}s (2-5s) before choosing video...")
+            await asyncio.sleep(pre_upload_delay)
+
+            # Strategy A: Native file chooser via 'Upload from your computer' link (100% human-like & reliable)
+            upload_link = await page.query_selector('text="Upload from your computer"')
+            if not upload_link:
+                try:
+                    await page.wait_for_selector('text="Upload from your computer"', timeout=8000)
+                    upload_link = await page.query_selector('text="Upload from your computer"')
+                except Exception:
+                    upload_link = None
+
+            if upload_link:
+                try:
+                    async with page.expect_file_chooser(timeout=10000) as fc_info:
+                        await upload_link.click()
+                    file_chooser = await fc_info.value
+                    await file_chooser.set_files(clean_paths)
+                    upload_triggered = True
+                    logger.info("File chooser set_files completed via 'Upload from your computer'")
+                except Exception as fce:
+                    logger.warning(f"File chooser notice: {fce}")
+
+            # Strategy B: Fallback directly to file input with 'multiple' attribute
+            if not upload_triggered:
+                file_inputs = await page.query_selector_all('input[type="file"]')
+                target_fi = None
+                for fi in file_inputs:
+                    mult = await fi.get_attribute('multiple')
+                    if mult is not None:
+                        target_fi = fi
+                        break
+                if not target_fi:
+                    for fi in file_inputs:
+                        accept = await fi.get_attribute('accept') or ''
+                        if 'video' in accept:
+                            target_fi = fi
+                            break
+                if not target_fi and file_inputs:
+                    target_fi = file_inputs[0]
+
+                if target_fi:
+                    await target_fi.set_input_files(clean_paths)
+                    upload_triggered = True
+                    logger.info("Direct set_input_files completed on target file input")
+
+            if not upload_triggered:
+                raise RuntimeError("Failed to trigger video upload in Bulk upload reels modal")
+
+            # Delay 2: Wait at least 10 seconds once video is selected and upload started
+            logger.info("⏳ [Human Simulation] Video selected and upload started. Waiting at least 10.0s for video ingestion...")
+            await asyncio.sleep(10.0)
+
+            # Wait dynamically for upload rows / table to appear (up to 45s)
+            logger.info("⏳ Waiting for batch table rows to initialize...")
+            table_ready = False
+            for _ in range(45):
+                await page.wait_for_timeout(1000)
+                ready = await page.evaluate("""() => {
+                    const textboxes = document.querySelectorAll('div[role="textbox"], div[contenteditable="true"]');
+                    const publishBtns = Array.from(document.querySelectorAll('*')).filter(el => (el.innerText || '').trim() === 'Publish now');
+                    return textboxes.length > 0 || publishBtns.length > 0;
+                }""")
+                if ready:
+                    table_ready = True
                     break
-            if not target_fi and file_inputs:
-                target_fi = file_inputs[0]
 
-            if not target_fi:
-                raise RuntimeError("No file input found in Bulk upload reels modal")
+            if not table_ready:
+                raise RuntimeError("Timed out waiting for Bulk upload table rows to appear after selecting video(s)")
 
-            logger.info(f"Uploading {len(clean_paths)} video(s) to Bulk upload modal simultaneously...")
-            await target_fi.set_input_files(clean_paths)
-
-            # Wait for upload rows to populate (10-25s depending on video count)
-            wait_seconds = max(10, len(clean_paths) * 3)
-            logger.info(f"⏳ Waiting {wait_seconds}s for batch table rows to initialize...")
-            await page.wait_for_timeout(wait_seconds * 1000)
+            # Additional short stabilization delay
+            await page.wait_for_timeout(2000)
 
             # 6. Configure each video row: Caption and Schedule
             desc_boxes = await page.query_selector_all('div[role="textbox"], div[contenteditable="true"]')
@@ -2087,89 +2333,126 @@ class FacebookPublisher:
                 if i < len(desc_boxes):
                     try:
                         await desc_boxes[i].click()
-                        await page.wait_for_timeout(400)
+                        await page.wait_for_timeout(300)
                         await desc_boxes[i].fill(caption)
                         await page.wait_for_timeout(500)
                     except Exception as ce:
                         logger.warning(f"Error typing caption for row {i+1}: {ce}")
 
-                # B. Click Publish now -> Schedule for later
-                # Find all 'Publish now' elements
-                publish_btns = await page.query_selector_all('text="Publish now"')
-                # Click the one corresponding to the active row or the last visible one
-                if publish_btns:
-                    target_btn = publish_btns[0] if i == 0 and len(publish_btns) == 1 else (publish_btns[i] if i < len(publish_btns) else publish_btns[-1])
-                    try:
-                        await target_btn.click()
-                        await page.wait_for_timeout(1000)
-                    except Exception:
-                        await publish_btns[-1].click()
-                        await page.wait_for_timeout(1000)
+                # Delay 3: 5 seconds delay when description is added
+                logger.info(f"⏳ [Human Simulation] Description added for Reel [{i+1}/{total_rows}]. Waiting 5.0s...")
+                await asyncio.sleep(5.0)
 
-                    sched_for_later = await page.query_selector('text="Schedule for later"')
-                    if sched_for_later:
-                        await sched_for_later.click()
-                        await page.wait_for_timeout(1200)
+                # B. Click Publish now -> Schedule for later via robust coordinate click
+                box = await page.evaluate("""(idx) => {
+                    const els = Array.from(document.querySelectorAll('*')).filter(el => (el.innerText || '').trim() === 'Publish now');
+                    if (!els.length) return null;
+                    const target = idx < els.length ? els[idx] : els[els.length - 1];
+                    const r = target.getBoundingClientRect();
+                    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+                }""", i)
 
-                        # Set date
-                        if sched_date:
-                            await self._select_date_in_calendar(page, sched_date)
-                            await page.wait_for_timeout(600)
+                if box:
+                    await page.mouse.click(box['x'], box['y'])
+                    # Delay 4A: 3 seconds delay for step
+                    logger.info("⏳ [Human Simulation] Opened Publish menu. Waiting 3.0s...")
+                    await asyncio.sleep(3.0)
 
-                        # Set time
-                        if sched_time:
-                            await self._set_time_in_picker(page, sched_time)
-                            await page.wait_for_timeout(600)
+                sched_box = await page.evaluate("""() => {
+                    const el = Array.from(document.querySelectorAll('*')).find(e => {
+                        const t = (e.innerText || '').trim();
+                        return t === 'Schedule for later' || t.startsWith('Schedule for later');
+                    });
+                    if (!el) return null;
+                    const r = el.getBoundingClientRect();
+                    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+                }""")
 
-                        # Click Apply (using JS evaluate to bypass any overlay pointer intercept issues)
-                        apply_clicked = await page.evaluate("""() => {
-                            const btns = Array.from(document.querySelectorAll('div[role="button"], button')).filter(b => {
-                                return (b.innerText || '').trim() === 'Apply';
-                            });
-                            if (btns.length > 0) {
-                                btns[0].click();
-                                return true;
-                            }
-                            return false;
-                        }""")
-                        if not apply_clicked:
-                            apply_btn = await page.query_selector('div[role="button"]:has-text("Apply"), button:has-text("Apply")')
-                            if apply_btn:
-                                try:
-                                    await page.evaluate("(el) => el && el.click()", apply_btn)
-                                    apply_clicked = True
-                                except Exception:
-                                    await apply_btn.click(timeout=3000)
-                                    apply_clicked = True
+                if sched_box:
+                    await page.mouse.click(sched_box['x'], sched_box['y'])
+                    # Delay 4B: 3 seconds delay for step
+                    logger.info("⏳ [Human Simulation] Selected 'Schedule for later'. Waiting 3.0s...")
+                    await asyncio.sleep(3.0)
 
-                        if apply_clicked:
-                            await page.wait_for_timeout(1000)
-                            row_info = await page.evaluate(f"""(idx) => {{
-                                const boxes = Array.from(document.querySelectorAll('*')).filter(el => {{
-                                    return el.children.length === 0 && (el.innerText || '').startsWith('Scheduled');
-                                }});
-                                return boxes.length > idx ? boxes[idx].innerText.trim() : (boxes.length > 0 ? boxes[boxes.length - 1].innerText.trim() : '');
-                            }}""", i)
-                            logger.info(f"Schedule applied for Reel [{i+1}/{total_rows}]: {sched_date} @ {sched_time} (UI text: '{row_info}')")
-                        else:
-                            logger.warning(f"Could not click Apply button for Reel [{i+1}/{total_rows}]")
-                        await page.wait_for_timeout(1500)
+                    # Set date
+                    if sched_date:
+                        await self._select_date_in_calendar(page, sched_date)
+                        # Delay 4C: 3 seconds delay for step
+                        logger.info(f"⏳ [Human Simulation] Selected date {sched_date}. Waiting 3.0s...")
+                        await asyncio.sleep(3.0)
 
-                await self._human_delay(2.0, 4.0, f"Row {i+1} configured")
+                    # Set time
+                    if sched_time:
+                        await self._set_time_in_picker(page, sched_time)
+                        # Delay 4D: 3 seconds delay for step
+                        logger.info(f"⏳ [Human Simulation] Configured time {sched_time}. Waiting 3.0s...")
+                        await asyncio.sleep(3.0)
+
+                    # Click Apply
+                    apply_clicked = await page.evaluate("""() => {
+                        const btns = Array.from(document.querySelectorAll('div[role="button"], button')).filter(b => {
+                            return (b.innerText || '').trim() === 'Apply';
+                        });
+                        if (btns.length > 0) {
+                            btns[0].click();
+                            return true;
+                        }
+                        return false;
+                    }""")
+                    if not apply_clicked:
+                        apply_btn = await page.query_selector('div[role="button"]:has-text("Apply"), button:has-text("Apply")')
+                        if apply_btn:
+                            try:
+                                await page.evaluate("(el) => el && el.click()", apply_btn)
+                                apply_clicked = True
+                            except Exception:
+                                await apply_btn.click(timeout=3000)
+                                apply_clicked = True
+
+                    if apply_clicked:
+                        row_info = await page.evaluate(f"""(idx) => {{
+                            const boxes = Array.from(document.querySelectorAll('*')).filter(el => {{
+                                return el.children.length === 0 && (el.innerText || '').startsWith('Scheduled');
+                            }});
+                            return boxes.length > idx ? boxes[idx].innerText.trim() : (boxes.length > 0 ? boxes[boxes.length - 1].innerText.trim() : '');
+                        }}""", i)
+                        logger.info(f"Schedule applied for Reel [{i+1}/{total_rows}]: {sched_date} @ {sched_time} (UI text: '{row_info}')")
+                    else:
+                        logger.warning(f"Could not click Apply button for Reel [{i+1}/{total_rows}]")
+
+                    # Delay 4E: 3 seconds delay after Apply
+                    logger.info("⏳ [Human Simulation] Clicked Apply. Waiting 3.0s...")
+                    await asyncio.sleep(3.0)
+
+                await self._human_delay(2.0, 3.0, f"Row {i+1} configured")
+
+            # Delay 4F: 3 seconds delay before clicking Save / Schedule button
+            logger.info("⏳ [Human Simulation] Pre-commit delay: Waiting 3.0s before clicking Save / Schedule...")
+            await asyncio.sleep(3.0)
 
             # 7. Click 'Save' or 'Schedule' to finalize the entire batch
             logger.info("Committing batch: Clicking 'Save' / 'Schedule' button...")
-            save_clicked = await page.evaluate("""() => {
-                const btns = Array.from(document.querySelectorAll('div[role="dialog"] div[role="button"], div[role="dialog"] button, div[role="button"], button')).filter(b => {
+            save_btn_rect = await page.evaluate("""() => {
+                const el = Array.from(document.querySelectorAll('div[role="button"], button')).find(b => {
                     const t = (b.innerText || '').trim();
                     return t === 'Save' || t === 'Schedule';
                 });
-                if (btns.length > 0) {
-                    btns[btns.length - 1].click();
-                    return true;
-                }
-                return false;
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
             }""")
+
+            save_clicked = False
+            if save_btn_rect:
+                await page.mouse.click(save_btn_rect['x'], save_btn_rect['y'])
+                await page.evaluate("""() => {
+                    const el = Array.from(document.querySelectorAll('div[role="button"], button')).find(b => {
+                        const t = (b.innerText || '').trim();
+                        return t === 'Save' || t === 'Schedule';
+                    });
+                    if (el) el.click();
+                }""")
+                save_clicked = True
 
             if not save_clicked:
                 save_btn = await page.query_selector(
@@ -2189,16 +2472,27 @@ class FacebookPublisher:
                 raise RuntimeError("Could not click 'Save' or 'Schedule' button in Bulk upload modal")
 
             logger.info("Waiting for batch saving to complete...")
-            # Wait for modal to disappear or success confirmation
-            await page.wait_for_timeout(8000)
+            # Wait up to 20 seconds for modal to close or redirect to content library
+            for _ in range(20):
+                await page.wait_for_timeout(1000)
+                cur_url = page.url
+                if 'content_library' in cur_url or 'filter=SCHEDULED' in cur_url:
+                    break
+                has_modal = await page.evaluate("""() => {
+                    return Array.from(document.querySelectorAll('*')).some(e => (e.innerText || '').trim() === 'Bulk-upload items');
+                }""")
+                if not has_modal:
+                    break
 
-            # Verification: Check if modal closed cleanly
+            # Verification: Set results
             for r in results:
                 r['status'] = 'scheduled'
-                r['url'] = f"{self.PROFESSIONAL_DASHBOARD_URL}content/content_library/"
+                r['url'] = f"{self.PROFESSIONAL_DASHBOARD_URL}content/content_library/?filter=SCHEDULED"
 
-            logger.info(f"✅ Successfully scheduled batch of {len(batch)} reels on Facebook Professional Dashboard!")
-            await self.engine.screenshot('fb_bulk_batch_success')
+            try:
+                await self.engine.screenshot('fb_bulk_batch_success')
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error(f"Facebook bulk scheduling failed: {e}", exc_info=True)

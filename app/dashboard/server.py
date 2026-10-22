@@ -36,6 +36,7 @@ if sys.platform == "win32":
 import json
 import logging
 import os
+import random
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
@@ -147,6 +148,15 @@ app.add_middleware(
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+@app.middleware("http")
+async def add_no_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/static") or request.url.path == "/":
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  DASHBOARD — HTML PAGES
@@ -154,9 +164,20 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_home():
-    """Serve the main dashboard SPA."""
+    """Serve the main dashboard SPA with dynamic cache busting."""
     html_path = Path(__file__).parent / "templates" / "index.html"
-    return HTMLResponse(content=html_path.read_text(encoding='utf-8'))
+    raw_html = html_path.read_text(encoding='utf-8')
+    ts = int(datetime.now().timestamp())
+    # Ensure fresh assets on every load
+    html_content = raw_html.replace('?v=2.3.0', f'?v={ts}').replace('?v=2.2.8', f'?v={ts}').replace('?v=2.2.2', f'?v={ts}')
+    return HTMLResponse(
+        content=html_content,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 
 @app.get("/favicon.ico")
@@ -1405,7 +1426,8 @@ async def run_queue_publishing_generator(platform=None, limit=0, dry_run=False, 
     is_queue_publishing_running = True
     queue_publish_stop_requested = False
 
-    def log(msg, current=0, total=0, status="running", done=False, job=None):
+    def log(msg, current=0, total=0, status="running", done=False, job=None,
+            active_job_id=None, progress_pct=None, step_label=None):
         try:
             print(msg, flush=True)
         except Exception:
@@ -1419,7 +1441,10 @@ async def run_queue_publishing_generator(platform=None, limit=0, dry_run=False, 
             'total': total,
             'status': status,
             'done': done,
-            'job': job
+            'job': job,
+            'active_job_id': active_job_id,
+            'progress_pct': progress_pct,
+            'step_label': step_label
         }
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1511,11 +1536,24 @@ async def run_queue_publishing_generator(platform=None, limit=0, dry_run=False, 
             title = sanitize_title_no_numbers(raw_title)
             desc = j['seo_description'] or ''
             thumb = j['thumbnail_path']
+            if plat == 'youtube' and (not thumb or not Path(thumb).exists()):
+                stem = Path(fname).stem
+                candidates = [
+                    Path("output/thumbnails") / f"{stem}_thumb.jpg",
+                    Path("output/thumbnails") / f"{stem}.jpg",
+                    Path("start video/thumbnails") / f"{stem}_thumb.jpg",
+                ]
+                for c in candidates:
+                    if c.exists():
+                        thumb = str(c.resolve())
+                        break
 
             yield log(f"\n────────────────────────────────────────────────────────────────────────────")
-            yield log(f"[{idx}/{total}] 📤 Processing: {fname} on {plat.upper()}", current=idx, total=total)
+            yield log(f"[{idx}/{total}] 📤 Processing: {fname} on {plat.upper()}", current=idx, total=total,
+                      active_job_id=job_id, progress_pct=15, step_label=f"Initializing {plat.upper()} upload...")
             yield log(f"      Title (no numbers): {title}")
-            yield log(f"      Scheduled: {s_date} at {s_time} IST")
+            yield log(f"      Scheduled: {s_date} at {s_time} IST", current=idx, total=total,
+                      active_job_id=job_id, progress_pct=30, step_label=f"Navigating to {plat.upper()}...")
             yield log(f"      Video: {Path(vpath).name if vpath else 'None'}")
             yield log(f"      Thumbnail: {Path(thumb).name if thumb else 'None'}")
 
@@ -1692,7 +1730,8 @@ async def run_queue_publishing_generator(platform=None, limit=0, dry_run=False, 
 
                     conn.commit()
                     success_count += 1
-                    yield log(f"  ✅ SUCCESS: {plat.upper()} Job #{job_id} {res_status.upper()}! URL: {pub_url or 'N/A'}")
+                    yield log(f"  ✅ SUCCESS: {plat.upper()} Job #{job_id} {res_status.upper()}! URL: {pub_url or 'N/A'}",
+                              current=idx, total=total, active_job_id=job_id, progress_pct=100, step_label=f"{res_status.upper()} Successfully!")
                     conn.close()
                 else:
                     is_limit_reached = (
@@ -1792,11 +1831,23 @@ async def run_queue_publishing_generator(platform=None, limit=0, dry_run=False, 
 
             # Human-like pacing between uploads with responsive stop polling
             if idx < total and not dry_run:
-                yield log(f"  ⏳ Pacing delay (5s) before next upload to protect account health...")
-                for _ in range(50):
-                    if queue_publish_stop_requested:
-                        break
-                    await asyncio.sleep(0.1)
+                if plat == 'facebook':
+                    fb_pacing = random.uniform(46.0, 55.0)
+                    yield log(f"  ⏳ [Human Simulation] Random pacing delay ({fb_pacing:.1f}s, range 46-55s) before next FACEBOOK video...",
+                              current=idx, total=total, active_job_id=job_id, progress_pct=100, step_label=f"Pacing ({fb_pacing:.0f}s)...")
+                    pacing_ticks = int(fb_pacing * 5)
+                    for tick in range(pacing_ticks):
+                        if queue_publish_stop_requested:
+                            break
+                        await asyncio.sleep(0.2)
+                else:
+                    yield log(f"  ⏳ Pacing delay (5s) before next upload to protect account health...",
+                              current=idx, total=total, active_job_id=job_id, progress_pct=100, step_label="Cooling down (5s)...")
+                    for _ in range(50):
+                        if queue_publish_stop_requested:
+                            break
+                        await asyncio.sleep(0.1)
+
                 if queue_publish_stop_requested:
                     yield log("\n🛑 Stop requested by user during delay. Halting queue execution...", done=True, status="stopped")
                     stopped_by_user = True

@@ -109,8 +109,10 @@ def test_api_update_jobs_status(client):
 
 
 def test_api_reschedule_job(client):
+    jobs = client.get("/api/schedule/jobs").json()
+    job_id = jobs[0]["id"] if jobs and isinstance(jobs, list) else 1
     response = client.post("/api/schedule/jobs/reschedule", json={
-        "job_id": 1,
+        "job_id": job_id,
         "scheduled_date": "2026-10-20",
         "scheduled_time": "08:30",
         "status": "pending",
@@ -239,7 +241,9 @@ def test_api_diagnostics_auto_heal_all(client):
 
 def test_api_diagnostics_resolve_job(client):
     """Test 1-click issue resolver for a job."""
-    res = client.post("/api/diagnostics/resolve-job", json={"job_id": 1, "action": "re-arm"})
+    jobs = client.get("/api/schedule/jobs").json()
+    job_id = jobs[0]["id"] if jobs and isinstance(jobs, list) else 1
+    res = client.post("/api/diagnostics/resolve-job", json={"job_id": job_id, "action": "re-arm"})
     assert res.status_code == 200
     data = res.json()
     assert data["success"] is True

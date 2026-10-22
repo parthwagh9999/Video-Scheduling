@@ -1711,13 +1711,60 @@ async function modalResetToPending() {
 }
 
 // ── 7. Publishing Queue ───────────────────────────────────────────────
-async function loadQueue() {
+function updatePipelineCounts() {
+    const pipeline = document.getElementById('queue-pipeline');
+    if (!pipeline || !state.queueJobs) return;
+    const status = document.getElementById('queue-status-filter')?.value || '';
+
+    const stages = [
+        { key: 'all', label: 'Total Jobs' },
+        { key: 'pending', label: 'Pending' },
+        { key: 'uploading', label: 'Uploading' },
+        { key: 'scheduled', label: 'Scheduled' },
+        { key: 'published', label: 'Published' },
+        { key: 'failed', label: 'Failed' },
+    ];
+
+    const counts = {
+        all: state.queueJobs.length,
+        pending: state.queueJobs.filter(j => j.status === 'pending').length,
+        uploading: state.queueJobs.filter(j => j.status === 'uploading').length,
+        scheduled: state.queueJobs.filter(j => j.status === 'scheduled').length,
+        published: state.queueJobs.filter(j => j.status === 'published').length,
+        failed: state.queueJobs.filter(j => j.status === 'failed').length,
+    };
+
+    pipeline.innerHTML = stages.map(s => `
+        <div class="pipeline-stage ${status === s.key ? 'active' : ''}" onclick="setQueueFilter('${s.key}')">
+            <div class="stage-count">${counts[s.key] || 0}</div>
+            <div class="stage-label">${s.label}</div>
+        </div>
+    `).join('');
+
+    const badge = document.getElementById('queue-badge');
+    if (badge) {
+        if (counts.pending > 0) {
+            badge.style.display = 'inline-block';
+            badge.textContent = counts.pending;
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+}
+
+async function loadQueue(options = {}) {
+    const preserveScroll = options.preserveScroll || false;
+    const keepRowId = options.keepRowId || null;
+    const prevScrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+
     const platform = document.getElementById('queue-platform-filter')?.value || '';
     const status = document.getElementById('queue-status-filter')?.value || '';
     const tbody = document.getElementById('queue-tbody');
-    const pipeline = document.getElementById('queue-pipeline');
 
-    tbody.innerHTML = `<tr><td colspan="9" class="loading-overlay"><span class="spinner"></span> Loading queue...</td></tr>`;
+    // Only display destructive loading overlay if NOT preserving scroll
+    if (!preserveScroll && tbody) {
+        tbody.innerHTML = `<tr><td colspan="9" class="loading-overlay"><span class="spinner"></span> Loading queue...</td></tr>`;
+    }
 
     try {
         let url = '/api/schedule/jobs?';
@@ -1728,47 +1775,26 @@ async function loadQueue() {
         state.queueJobs = await res.json();
 
         // Update pipeline summary counts
-        const stages = [
-            { key: 'all', label: 'Total Jobs' },
-            { key: 'pending', label: 'Pending' },
-            { key: 'uploading', label: 'Uploading' },
-            { key: 'scheduled', label: 'Scheduled' },
-            { key: 'published', label: 'Published' },
-            { key: 'failed', label: 'Failed' },
-        ];
-
-        const counts = {
-            all: state.queueJobs.length,
-            pending: state.queueJobs.filter(j => j.status === 'pending').length,
-            uploading: state.queueJobs.filter(j => j.status === 'uploading').length,
-            scheduled: state.queueJobs.filter(j => j.status === 'scheduled').length,
-            published: state.queueJobs.filter(j => j.status === 'published').length,
-            failed: state.queueJobs.filter(j => j.status === 'failed').length,
-        };
-
-        pipeline.innerHTML = stages.map(s => `
-            <div class="pipeline-stage ${status === s.key ? 'active' : ''}" onclick="setQueueFilter('${s.key}')">
-                <div class="stage-count">${counts[s.key] || 0}</div>
-                <div class="stage-label">${s.label}</div>
-            </div>
-        `).join('');
-
-        // Badge in sidebar
-        const badge = document.getElementById('queue-badge');
-        if (badge) {
-            if (counts.pending > 0) {
-                badge.style.display = 'inline-block';
-                badge.textContent = counts.pending;
-            } else {
-                badge.style.display = 'none';
-            }
-        }
+        updatePipelineCounts();
 
         renderQueueTable();
         updateBulkBar();
 
+        // Restore scroll position with zero jump
+        if (preserveScroll) {
+            window.scrollTo({ top: prevScrollY, behavior: 'instant' });
+            if (keepRowId) {
+                const targetRow = document.getElementById(`queue-row-${keepRowId}`);
+                if (targetRow) {
+                    targetRow.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+                }
+            }
+        }
+
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-muted" style="text-align:center;padding:24px;">Failed to load queue: ${escapeHtml(e.message)}</td></tr>`;
+        if (!preserveScroll && tbody) {
+            tbody.innerHTML = `<tr><td colspan="9" class="text-muted" style="text-align:center;padding:24px;">Failed to load queue: ${escapeHtml(e.message)}</td></tr>`;
+        }
     }
 }
 
@@ -1799,19 +1825,47 @@ function renderQueueTable() {
         const errorHtml = j.error_message ? `<div style="font-size:0.75rem; color:#f87171; margin-top:3px; word-break:break-word;">⚠️ ${escapeHtml(j.error_message)}</div>` : '';
         const isChecked = state.selectedJobIds.has(j.id);
 
+        const isSchedulingActive = (j.status === 'uploading') || (window.activeSchedulingJobId === j.id);
+        const activePct = (window.activeSchedulingJobId === j.id && window.activeSchedulingProgress != null)
+            ? window.activeSchedulingProgress
+            : (j.status === 'uploading' ? 50 : 0);
+        const activeStepLabel = (window.activeSchedulingJobId === j.id && window.activeSchedulingStep)
+            ? window.activeSchedulingStep
+            : (j.status === 'uploading' ? 'Uploading & Scheduling...' : '');
+
         const statusOptions = ['pending', 'scheduled', 'uploading', 'uploaded', 'published', 'failed', 'needs_attention'];
         const selectOptionsHtml = statusOptions.map(st => `
             <option value="${st}" ${j.status === st ? 'selected' : ''}>${st}</option>
         `).join('');
 
         return `
-            <tr id="queue-row-${j.id}">
+            <tr id="queue-row-${j.id}" class="queue-row queue-status-${statusClass} ${isSchedulingActive ? 'is-active-scheduling' : ''}">
                 <td style="text-align:center;">
                     <input type="checkbox" class="queue-row-checkbox" data-id="${j.id}" ${isChecked ? 'checked' : ''} onchange="onQueueRowCheck(${j.id}, this.checked)">
                 </td>
                 <td class="filename" title="${escapeHtml(fname)}">
-                    <div style="font-weight:600; color:var(--text-primary); cursor:pointer;" onclick="openRescheduleModalFromQueue(${j.id})">${escapeHtml(fname)}</div>
-                    ${errorHtml}
+                    <div class="queue-video-box status-${statusClass} ${isSchedulingActive ? 'is-active-scheduling' : ''}" id="queue-video-box-${j.id}">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            ${isSchedulingActive ? '<span class="video-active-pulse" title="Scheduling active"></span>' : ''}
+                            <div class="queue-video-title" onclick="openRescheduleModalFromQueue(${j.id})">
+                                ${escapeHtml(fname)}
+                            </div>
+                        </div>
+                        ${errorHtml}
+                        ${isSchedulingActive ? `
+                            <div class="scheduling-progress-wrapper" id="sched-progress-wrapper-${j.id}">
+                                <div class="scheduling-progress-meta">
+                                    <span class="scheduling-step-badge" id="sched-step-${j.id}">
+                                        <span class="spinner-tiny"></span> ${escapeHtml(activeStepLabel || 'Scheduling active...')}
+                                    </span>
+                                    <span class="scheduling-pct-badge" id="sched-pct-${j.id}">${activePct}%</span>
+                                </div>
+                                <div class="scheduling-progress-track">
+                                    <div class="scheduling-progress-fill" id="sched-fill-${j.id}" style="width: ${activePct}%;"></div>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
                 </td>
                 <td><span class="platform-badge ${platClass}">${escapeHtml(j.platform)}</span></td>
                 <td><span style="font-family:monospace; font-size:0.82rem; cursor:pointer;" onclick="openRescheduleModalFromQueue(${j.id})" title="Click to edit date">${escapeHtml(j.scheduled_date || '—')}</span></td>
@@ -1865,11 +1919,70 @@ function renderQueueTable() {
     }
 }
 
+function updateActiveSchedulingUI(jobId, pct, stepLabel) {
+    if (!jobId) return;
+    const box = document.getElementById(`queue-video-box-${jobId}`);
+    const row = document.getElementById(`queue-row-${jobId}`);
+    if (!box) return;
+
+    box.classList.add('is-active-scheduling');
+    if (row) row.classList.add('is-active-scheduling');
+
+    let wrapper = document.getElementById(`sched-progress-wrapper-${jobId}`);
+    if (!wrapper) {
+        wrapper = document.createElement('div');
+        wrapper.className = 'scheduling-progress-wrapper';
+        wrapper.id = `sched-progress-wrapper-${jobId}`;
+        wrapper.innerHTML = `
+            <div class="scheduling-progress-meta">
+                <span class="scheduling-step-badge" id="sched-step-${jobId}">
+                    <span class="spinner-tiny"></span> ${escapeHtml(stepLabel || 'Scheduling active...')}
+                </span>
+                <span class="scheduling-pct-badge" id="sched-pct-${jobId}">${pct || 0}%</span>
+            </div>
+            <div class="scheduling-progress-track">
+                <div class="scheduling-progress-fill" id="sched-fill-${jobId}" style="width: ${pct || 0}%;"></div>
+            </div>
+        `;
+        box.appendChild(wrapper);
+    } else {
+        const stepEl = document.getElementById(`sched-step-${jobId}`);
+        const pctEl = document.getElementById(`sched-pct-${jobId}`);
+        const fillEl = document.getElementById(`sched-fill-${jobId}`);
+        if (stepEl && stepLabel) stepEl.innerHTML = `<span class="spinner-tiny"></span> ${escapeHtml(stepLabel)}`;
+        if (pctEl && pct != null) pctEl.textContent = `${pct}%`;
+        if (fillEl && pct != null) fillEl.style.width = `${pct}%`;
+    }
+}
+
 function filterQueueRows() {
     renderQueueTable();
 }
 
 async function changeJobStatus(jobId, newStatus) {
+    const prevScrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+    const rowEl = document.getElementById(`queue-row-${jobId}`);
+    const videoBox = document.getElementById(`queue-video-box-${jobId}`);
+    const selectEl = rowEl?.querySelector('.status-select-badge');
+
+    // 1. Optimistic instant visual update: zero latency, zero scroll movement
+    if (selectEl) {
+        selectEl.value = newStatus;
+        selectEl.className = `status-select-badge ${newStatus}`;
+    }
+    if (videoBox) {
+        videoBox.className = `queue-video-box status-${newStatus}`;
+    }
+    if (rowEl) {
+        rowEl.className = `queue-row queue-status-${newStatus}`;
+    }
+
+    if (state.queueJobs) {
+        const j = state.queueJobs.find(x => x.id === jobId);
+        if (j) j.status = newStatus;
+        updatePipelineCounts();
+    }
+
     try {
         const res = await fetch('/api/schedule/jobs/update-status', {
             method: 'POST',
@@ -1880,17 +1993,41 @@ async function changeJobStatus(jobId, newStatus) {
         if (!res.ok) throw new Error(data.detail || 'Failed to update status');
 
         showToast(`Job #${jobId} status updated to '${newStatus}'.`, 'success');
+        // Refresh with scroll preservation - zero jump!
+        await loadQueue({ preserveScroll: true, keepRowId: jobId });
         if (typeof loadHome === 'function') loadHome();
-        loadQueue();
         loadOverview();
         loadCalendar();
     } catch (err) {
         showToast(`Status update failed: ${err.message}`, 'error');
-        loadQueue();
+        await loadQueue({ preserveScroll: true, keepRowId: jobId });
     }
 }
 
 async function quickSetPending(jobId, filename) {
+    const prevScrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+    const rowEl = document.getElementById(`queue-row-${jobId}`);
+    const videoBox = document.getElementById(`queue-video-box-${jobId}`);
+    const selectEl = rowEl?.querySelector('.status-select-badge');
+
+    // Optimistic instant update
+    if (selectEl) {
+        selectEl.value = 'pending';
+        selectEl.className = `status-select-badge pending`;
+    }
+    if (videoBox) {
+        videoBox.className = `queue-video-box status-pending`;
+    }
+    if (rowEl) {
+        rowEl.className = `queue-row queue-status-pending`;
+    }
+
+    if (state.queueJobs) {
+        const j = state.queueJobs.find(x => x.id === jobId);
+        if (j) j.status = 'pending';
+        updatePipelineCounts();
+    }
+
     try {
         const res = await fetch('/api/schedule/jobs/update-status', {
             method: 'POST',
@@ -1901,12 +2038,14 @@ async function quickSetPending(jobId, filename) {
         if (!res.ok) throw new Error(data.detail || 'Reset failed');
 
         showToast(`↺ Reset to Pending: Ready for automated publishing!`, 'success');
+        // Refresh with scroll preservation - zero jump!
+        await loadQueue({ preserveScroll: true, keepRowId: jobId });
         if (typeof loadHome === 'function') loadHome();
-        loadQueue();
         loadOverview();
         loadCalendar();
     } catch (err) {
         showToast(`Failed to reset job: ${err.message}`, 'error');
+        await loadQueue({ preserveScroll: true, keepRowId: jobId });
     }
 }
 
@@ -2215,9 +2354,17 @@ async function startQueuePublishing(dryRun = false) {
                     badge.textContent = `Job ${data.current}/${data.total} (${data.status})`;
                 }
 
-                // Refresh queue table periodically on job progress
+                // Real-time active scheduling progress update
+                if (data.active_job_id) {
+                    window.activeSchedulingJobId = data.active_job_id;
+                    window.activeSchedulingProgress = data.progress_pct != null ? data.progress_pct : window.activeSchedulingProgress;
+                    window.activeSchedulingStep = data.step_label || window.activeSchedulingStep;
+                    updateActiveSchedulingUI(data.active_job_id, window.activeSchedulingProgress, window.activeSchedulingStep);
+                }
+
+                // Refresh queue table with zero scroll jump on job state changes
                 if (data.line && (data.line.includes('SUCCESS') || data.line.includes('FAILED') || data.line.includes('Processing:'))) {
-                    loadQueue();
+                    loadQueue({ preserveScroll: true, keepRowId: data.active_job_id });
                 }
 
                 if (data.done) {
@@ -2225,7 +2372,11 @@ async function startQueuePublishing(dryRun = false) {
                         queuePublishingEventSource.close();
                         queuePublishingEventSource = null;
                     }
+                    window.activeSchedulingJobId = null;
+                    window.activeSchedulingProgress = null;
+                    window.activeSchedulingStep = null;
                     state.isQueuePublishingRunning = false;
+                    loadQueue({ preserveScroll: true });
 
                     const wasStopped = data.status === 'stopped';
                     if (badge) {
